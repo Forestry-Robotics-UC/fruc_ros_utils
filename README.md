@@ -1,50 +1,87 @@
-#FRUC ROS Utils
 
-## Transform PCL 
+# ROS Utils
 
-### Description
-Transform PCL subscribes to the original point cloud with its source frame and republishes it into the target frame instead.
+This repository contains a collection of utility scripts for ROS (Robot Operating System). These scripts provide various functionalities, including image processing, USB device monitoring, ROS bag file manipulation, and system monitoring.
 
-Tested on Ubuntu 18.04 and ROS Melodic
+## Contents
 
-### Installation
+1. [Image Subscriber Template](#image-subscriber-template)
+2. [USB Buffer Publisher](#usb-buffer-publisher)
+3. [Bag Utils](#bag-utils)
+4. [System Monitoring](#system-monitoring)
 
-1. Add all ROS dependencies using the following command:
-```
-cd your_work_space
-rosdep install --from-paths src --ignore-src -y -r
-```
+## Image Subscriber Template
 
-### Compiling
+This script subscribes to a ROS image topic, converts the ROS image messages to OpenCV images, and publishes the processed images.
 
-```
-cd your_work_space
-catkin_make 
-```
+### Usage
 
-### Example Usage
+1. **Run the script**:
+    ```bash
+    rosrun <your_package_name> image_subscriber_template.py
+    ```
 
-#### Transform PCL
+2. **Parameters**:
+    - `~publish_rate` (int, default: 50): The rate at which to publish debug images.
 
-**Parameters**
+3. **ROS Topics**:
+    - Subscribes to: `~image_topic` (sensor_msgs/Image)
+    - Publishes to: `~debug_image` (sensor_msgs/Image)
 
-`cloud_topic` (`string`, `default: /fused_point_cloud`)
+## USB Buffer Publisher
 
-Topic to subscribe. Defaults at fused_point_cloud.
+This script monitors USB devices, captures USB traffic, and retrieves device descriptors.
 
-`newFrame_id` (`string`, `default: front_lslidar`)
+### Usage
 
-Target frame to transform the pointcloud. Defaults at front_lslidar
+1. **Run the script**:
+    ```bash
+    python usb_buffer_publisher.py
+    ```
 
-**Topics**
+## Bag Utils
 
-`transformed_pcl` (`sensor_msgs/PointCloud2`)
+This script provides utilities for processing ROS bag files, including removing topics, changing frame IDs, and printing topic sizes. It also supports a GUI option for input selection.
 
-Publishes a PointCloud2.
+### Usage
 
-**Node**
+1. **Remove a topic from a single bag file**:
+    ```bash
+    python bagutils.py remove_topic --bagin input.bag --bagout output.bag --topic /topic_to_remove
+    ```
 
-```
-rosrun ros_bags_utils transform_pcl.py _cloud_topic:=value _newFrame_id:=value
-```
-*Note*: Only needs to pass cloud_topic and newFrame_id arguments if you want values **different** than the default
+2. **Change frame ID for a topic in a single bag file**:
+    ```bash
+    python bagutils.py change_frame_id --bagin input.bag --bagout output.bag --topic /topic_name --new_frame_id new_frame
+    ```
+
+3. **Print total cumulative serialized message size per topic for a single bag file**:
+    ```bash
+    python bagutils.py print_topic_sizes --bagin input.bag
+    ```
+
+4. **Process all bag files in a folder**:
+    ```bash
+    python bagutils.py --folder_path /path/to/bag/folder --function remove_topic --topic /topic_to_remove
+    python bagutils.py --folder_path /path/to/bag/folder --function change_frame_id --topic /topic_name --new_frame_id new_frame
+    python bagutils.py --folder_path /path/to/bag/folder --function print_topic_sizes
+    ```
+
+5. **Use GUI for input selection**:
+    ```bash
+    python bagutils.py --use_gui
+    ```
+
+## System Monitoring
+
+This script monitors system metrics such as CPU temperatures, CPU frequencies, and ROS topic frequencies, publishing them as diagnostics messages.
+
+### Usage
+
+1. **Run the script**:
+    ```bash
+    rosrun <your_package_name> system_monitoring.py
+    ```
+
+2. **ROS Topics**:
+    - Publishes to: `/diagnostics/system` (diagnostic_msgs/DiagnosticArray)
