@@ -1,50 +1,91 @@
-#!/usr/bin/env python
+import usb.core
+import usb.util
+import subprocess
+import time
 
-import rospy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-import psutil
-import pyudev
+def get_usb_devices():
+    """
+    Retrieve a list of all connected USB devices.
 
-def monitor_usb_buffer():
-    context = pyudev.Context()
-    usb_devices = [device for device in context.list_devices(subsystem='usb')]
-    pub = rospy.Publisher('/diagnostics_usb', DiagnosticArray, queue_size=10)
+    Returns:
+        list: List of connected USB devices.
+    """
+    devices = usb.core.find(find_all=True)
+    device_list = []
+    for device in devices:
+        device_list.append(device)
+    return device_list
 
-    while not rospy.is_shutdown():
-        partitions = psutil.disk_partitions()
-        msg = DiagnosticArray()
-        msg.header.stamp = rospy.get_rostime()
+def capture_usb_traffic(duration=10):
+    """
+    Capture USB traffic using the usbmon tool.
 
-        for usb_device in usb_devices:
-            usb_status = DiagnosticStatus()
-            usb_status.name = f"{usb_device.get('ID_VENDOR')} {usb_device.get('ID_MODEL')}"
+    Args:
+        duration (int): Duration in seconds for which to capture USB traffic.
 
-            partition_found = False
-            for partition in partitions:
-                if partition.mountpoint.startswith(usb_device.get('UDISKS2_MP_MOUNT_POINTS', '')):
-                    partition_found = True
-                    usage = psutil.disk_usage(partition.mountpoint)
-                    buffer_usage = usage.percent
-                    buffer_bar = "[" + "=" * int(buffer_usage // 5) + " " * int((100 - buffer_usage) // 5) + "]"
-                    usb_status.message = f"Buffer usage: {buffer_usage}% {buffer_bar}"
-                    usb_status.level = DiagnosticStatus.OK if buffer_usage < 80 else DiagnosticStatus.WARN
-                    usb_status.values.append(KeyValue("Device path", partition.device))
-                    usb_status.values.append(KeyValue("Mount point", partition.mountpoint))
-                    break
+    Returns:
+        float: Traffic in KB/s if successful, None otherwise.
+    """
+    try:
+        cmd = ['/usr/bin/usbmon', '-t', str(duration), '-s', '512', '-i', '1']
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = process.communicate()
+        if error:
+            print('Error while capturing traffic from usbmon:', error.decode())
+            return None
+        else:
+            # Extract traffic data from usbmon output
+            traffic = int(output.split(b'total_traffic: ')[-1].split()[0].decode())
+            return traffic / 1024  # Convert to KB/s
+    except Exception as e:
+        print(f"Error capturing USB traffic: {e}")
+        return None
 
-            if not partition_found:
-                usb_status.message = "No partition found"
-                usb_status.level = DiagnosticStatus.ERROR
+def get_device_descriptor(device):
+    """
+    Get the descriptor of a USB device.
 
-            msg.status.append(usb_status)
+    Args:
+        device: USB device object.
 
-        pub.publish(msg)
-
-        rospy.sleep(1)
+    Returns:
+        The device descriptor if available, None otherwise.
+    """
+    try:
+        # Extract the active configuration descriptor
+        descriptor = device.get_active_configuration().extra
+        return descriptor
+    except Exception as e:
+        print(f"Error getting device descriptor: {e}")
+        return None
 
 if __name__ == '__main__':
-    rospy.init_node('usb_buffer_monitor')
-    try:
-        monitor_usb_buffer()
-    except rospy.ROSInterruptException:
-        pass
+    # Retrieve all connected USB devices
+    devices = get_usb_devices()
+    
+    for device in devices:
+        try:
+            # Get the device descriptor
+            descriptor = get_device_descriptor(device)
+            if descriptor:
+                # Get the device class ID and convert it to a human-readable string
+                class_id = device.bDeviceClass
+                class_name = usb.util.get_string(device, class_id)
+                print(f"Device Class: {class_name}")
+            else:
+                print("Device Class: Unknown")
+            
+            # Capture USB traffic for the device
+            traffic = capture_usb_traffic()
+            if traffic:
+                print(f"Traffic: {traffic:.2f} KB/s")
+            else:
+                print("Traffic: Unable to capture")
+        
+        except usb.core.USBError as e:
+            print("USBError:", e)
+        except Exception as e:
+            print("Error:", e)
+        
+        print("-" * 50)
+        time.sleep(1)  # Wait for 1 second before checking the next device

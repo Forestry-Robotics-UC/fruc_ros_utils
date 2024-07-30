@@ -1,193 +1,153 @@
 #!/usr/bin/env python
+import os
+import sys
 import rosbag
-from copy import deepcopy
-import tf
-import cv2
+import argparse
+import argcomplete
+from tqdm import tqdm
+import logging
+from PyQt5.QtWidgets import QApplication
+from pyqt_gui_utils import SimplePyQtGUIKit
 from cv_bridge import CvBridge, CvBridgeError
-import time
 import numpy as np
 from scipy.spatial.transform import Rotation
-import os
-import os.path
-import xml.etree.ElementTree as ET
-from xml.dom import minidom
-bagin = '/home/duda/datasets/quintareifmd/navigator__2021-06-22-14-19-20_0_test.bag'
-bagout ='/home/duda/datasets/quintareifmd/navigator__2021-06-22-14-19-20_0_test2.bag'
 
-path = '/home/duda/datasets/choupal/'
+# Initialize the logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-source_topic = ['/zed_nano/zed_node/left/image_rect_color/compressed',
-                '/zed_nano/zed_node/depth/depth_registered/compressedDepth',
-                '/tf_static',
-                '/zed_nano/zed_node/depth/camera_info',
-                '/zed_nano/zed_node/right/image_rect_color/compressed',
-                '/zed_nano/zed_node/right/camera_info ']
 bridge = CvBridge()
 
-def change_depth_header(bagin, bagout, topic):
-  from sensor_msgs.msg import CompressedImage
-  change_topic = topic
-  with rosbag.Bag(bagout, 'w') as outbag:
-    for topic, msg, t in rosbag.Bag(bagin).read_messages():
-      if topic == change_topic and 'png' not in msg.format:
-        msg.format = msg.format + " png"
-        print("Updated compressed format! \"%s\"" % (msg.format))
-        outbag.write(topic, msg, t)
-      else:
-        outbag.write(topic, msg, t)
-
-def get_bags_from_folder(path):
-  bags = []
-  file_list = os.listdir(path)
-
-  for file in file_list:
-    if 'bag' in file:
-      bags.append(path+'/'+file.split('.')[0])
-  return bags
-
-def change_image_color(image_msg):
-  pass #TODO
-
-
-def prettify(elem):
-    """Return a pretty-printed XML string for the Element.
+def remove_topic_from_bag(bagin, bagout, topics):
     """
-    rough_string = ET.tostring(elem, 'utf-8')
-    reparsed = minidom.parseString(rough_string)
-    return reparsed.toprettyxml(indent="  ")
+    Remove specified topics from the input bag file and save to the output bag file.
 
-def quat_to_rpy(tf_msg):
-  rotation = [tf.transform.rotation.x,
-              tf.transform.rotation.y,
-              tf.transform.rotation.z,
-              tf.transform.rotation.w]
-  rot = Rotation.from_quat(rotation)
-  rot_euler = rot.as_euler('xyz', degrees=True)
-  tvec = np.asarray([tf.transform.translation.x,
-                     tf.transform.translation.y,
-                     tf.transform.translation.z])
-  print(tf.header.frame_id, tf.child_frame_id, rot_euler, tvec)
+    :param bagin: Input bag file path.
+    :param bagout: Output bag file path.
+    :param topics: List of topics to remove.
+    """
+    try:
+        with rosbag.Bag(bagout, 'w') as outbag:
+            with rosbag.Bag(bagin) as inbag:
+                total_messages = inbag.get_message_count()
+                for topic, msg, t in tqdm(inbag.read_messages(), total=total_messages, desc=f'Processing {os.path.basename(bagin)}'):
+                    if topic not in topics:
+                        outbag.write(topic, msg, t)
+        logging.info(f"Finished processing {bagin}, saved to {bagout}")
+    except Exception as e:
+        logging.error(f"Error in remove_topic_from_bag: {e}")
 
-  return tf.header.frame_id, tf.child_frame_id, rot_euler, tvec
+def change_frame_id(bagin, bagout, topic, new_frame_id):
+    """
+    Change the frame ID of the specified topic in the input bag file and save to the output bag file.
 
-def change_timestamp(topic, new_msg, t):
-  if 'tf' in topic:
-    print("Analyzing tf topic: ", topic)
-    for tf in new_msg.transforms:
-      tf.header.stamp = t
-      # print("New tf time: ", tf.header.stamp)
-    new_topic = new_msg
-  else:
-    new_topic = new_msg
-    new_topic.header.stamp = t
-    # print(topic, " Old time: ", new_msg.header.stamp)
-    # print(topic, " New time: ", new_topic.header.stamp)
-  return new_topic
+    :param bagin: Input bag file path.
+    :param bagout: Output bag file path.
+    :param topic: Topic to process.
+    :param new_frame_id: New frame ID to set.
+    """
+    try:
+        with rosbag.Bag(bagin) as bagIn, rosbag.Bag(bagout, 'w') as bagOut:
+            total_messages = bagIn.get_message_count(topic_filters=[topic])
+            for topic_name, msg, t in tqdm(bagIn.read_messages(topics=[topic]), total=total_messages, desc=f'Processing {topic}'):
+                if topic_name == topic:
+                    logging.debug(f"Previous header: {msg.header.frame_id}")
+                    msg.header.frame_id = new_frame_id
+                    logging.debug(f"New header: {msg.header.frame_id}")
+                    bagOut.write(topic_name, msg, t)
+                else:
+                    bagOut.write(topic_name, msg, t)
+        logging.info(f"Finished processing {bagin}, saved to {bagout}")
+    except Exception as e:
+        logging.error(f"Error in change_frame_id: {e}")
 
-def urdf_from_tf_static(bagin):
-  #TODO
-  tf_list = []
-  bagIn = rosbag.Bag(bagin)
-  for topic, msg, t in bagIn.read_messages(topics=['/tf_static']):
-    tfs = get_tf_list(msg, tf_list)
-  bagIn.close()
+def print_topic_sizes(bag_path):
+    """
+    Print total cumulative serialized message size per topic for a given bag file.
 
+    :param bag_path: Input bag file path.
+    """
+    try:
+        topic_size_dict = {}
+        with rosbag.Bag(bag_path, 'r') as bag:
+            for topic, msg, t in bag.read_messages(raw=True):
+                topic_size_dict[topic] = topic_size_dict.get(topic, 0) + len(msg[1])
+        
+        topic_size = sorted(topic_size_dict.items(), key=lambda x: x[1])
+        logging.info("Topic Size by Ascending Order:")
+        
+        for topic, size in topic_size:
+            size_mb = round((10**-6) * size, 2)
+            size_gb = round((10**-9) * size, 4)
+            logging.info(f"{topic}: {size_mb} MB, {size_gb} GB")
+    except Exception as e:
+        logging.error(f"Error in print_topic_sizes: {e}")
 
-  # adding an element to the root node
-  attrib = {'name': 'sensorbox'}
-  root = ET.Element("Robot",attrib)
-  print("number of tfs: ", len(tfs))
-  for tf in tfs:
-    print(tf)
-    attrib['name'] = tf
-    element = root.makeelement('link', attrib)
-    root.append(element)
-  # mydata = ET.tostring(root)
-  mydata = prettify(root)
-  print(type(mydata))
-  myfile = open(path+"items2.xml", "wb")
-  myfile.write(mydata)
-  # # adding an element to the seconditem node
-  # attrib = {'name2': 'secondname2'}
-  # subelement = root[0][1].makeelement('seconditem', attrib)
-  # ET.SubElement(root[1], 'seconditem', attrib)
-  # root[1][0].text = 'seconditemabc'
+def process_all_bags_in_folder(folder_path, function, *args):
+    """
+    Process all bag files in a folder using the specified function.
 
-
-def get_tf_list(bagin):
-  for tf in new_msg.transforms:
-    # print(tf)
-    list_tf.append(tf.child_frame_id)
-  return list_tf
-
-
-def change_frame_id(bagin, bagout):
-  bagIn = rosbag.Bag(bagin)
-  bagOut = rosbag.Bag(bagout, 'w')
-
-  for topic, msg, t in bagIn.read_messages():
-    # new_msg = deepcopy(msg)
-    if topic == "/semantic/livox":
-      print("previous header: ", msg.header.frame_id)
-      msg.header.frame_id = "livox_frame"
-      print("new header: ", msg.header.frame_id)
-      bagOut.write(topic, msg, t)
-    else:
-      bagOut.write(topic, msg, t)
-
-  bagIn.close()
-  bagOut.close()
-
-
-def read_write_bag(bagin, bagout, src_topic):
-  bagIn = rosbag.Bag(bagin)
-  bagOut = rosbag.Bag(bagout, 'w')
-  print("Reading bag: ", bagin)
-  write=True
-  with bagOut as outbag:
-    for topic, msg, t in bagIn.read_messages():
-      new_msg = deepcopy(msg)
-      for topic_name in src_topic:
-        if topic == topic_name:
-          if 'tf' in topic:
-            for tf in new_msg.transforms:
-              tf.header.stamp = t
-              # print("New tf time: ", tf.header.stamp)
-            new_topic = new_msg
-          else:
-            new_topic = new_msg
-            new_topic.header.stamp = t
-
-          outbag.write(topic, new_topic, t)
-          write=False
-          break
-      if write:
-        outbag.write(topic, msg, t)
-      else:
-        write=True
-
-  bagIn.close()
-  bagOut.close()
+    :param folder_path: Path to the folder containing ROS bag files.
+    :param function: The function to apply to each bag file.
+    :param args: Additional arguments to pass to the function.
+    """
+    try:
+        bag_files = [f for f in os.listdir(folder_path) if f.endswith('.bag')]
+        for file_name in tqdm(bag_files, desc='Processing all bags'):
+            input_bag_path = os.path.join(folder_path, file_name)
+            output_bag_path = os.path.join(folder_path, f"filtered_{file_name}")
+            function(input_bag_path, output_bag_path, *args)
+            logging.info(f"Processed {file_name}")
+    except Exception as e:
+        logging.error(f"Error in process_all_bags_in_folder: {e}")
 
 def main():
-  bags = get_bags_from_folder(path)
-  sem = []
-  print(bags)
-  final_count = len(bags)
-  init = 1
-  ext = '.bag'
-  for bag in bags:
-    if 'test' in bag:
-      pass
-      # print (bag)
-      # change_frame_id(bag+ext, bag+'_.bag')
-    # oldpath, bag_name = os.path.split(bag)
-    # newpath = '/home/duda/datasets/quintareifmd/' + bag_name + '.bag'
-    # print(newpath)
-    # change_depth_header(bag+'.bag', newpath, '/zed_nano/zed_node/depth/depth_registered/compressedDepth')
-    # print("Finished bag ", init, 'of ', final_count)    
-    # print('*'*80)
-    # init += 1
+    parser = argparse.ArgumentParser(description='Process ROS bag files.')
+    parser.add_argument('function', type=str, choices=['remove_topic', 'change_frame_id', 'print_topic_sizes'],
+                        help='Function to run: remove_topic, change_frame_id, print_topic_sizes')
+    parser.add_argument('--bagin', type=str, help='Input bag file path.')
+    parser.add_argument('--bagout', type=str, help='Output bag file path.')
+    parser.add_argument('--topic', type=str, nargs='+', help='Topics to process.')
+    parser.add_argument('--new_frame_id', type=str, help='New frame ID for the specified topic.')
+    parser.add_argument('--folder_path', type=str, help='Path to the folder containing ROS bag files.')
+    parser.add_argument('--use_gui', action='store_true', help='Use GUI for input selection.')
+    argcomplete.autocomplete(parser)
+    args = parser.parse_args()
 
-if __name__ == '__main__':
-  main()
+    if args.use_gui:
+        app = QApplication(sys.argv)
+        gui = SimplePyQtGUIKit()
+        try:
+            params = gui.PromptForParameters(args.function)
+        except Exception as e:
+            logging.error(f"Error during GUI input: {e}")
+            return
+
+        input_path = params['input_path']
+        if os.path.isdir(input_path):
+            args.folder_path = input_path
+        else:
+            args.bagin = input_path
+            if 'bagout' in params:
+                args.bagout = params['bagout']
+
+        if 'topics' in params:
+            args.topic = params['topics']
+        if 'new_frame_id' in params:
+            args.new_frame_id = params['new_frame_id']
+
+    func_map = {
+        'remove_topic': lambda: process_all_bags_in_folder(args.folder_path, remove_topic_from_bag, args.topic) if args.folder_path else remove_topic_from_bag(args.bagin, args.bagout, args.topic),
+        'change_frame_id': lambda: process_all_bags_in_folder(args.folder_path, change_frame_id, args.topic[0], args.new_frame_id) if args.folder_path else change_frame_id(args.bagin, args.bagout, args.topic[0], args.new_frame_id),
+        'print_topic_sizes': lambda: process_all_bags_in_folder(args.folder_path, print_topic_sizes) if args.folder_path else print_topic_sizes(args.bagin)
+    }
+
+    if args.function in func_map:
+        try:
+            func_map[args.function]()
+        except Exception as e:
+            logging.error(f"Error during function execution: {e}")
+    else:
+        logging.error("Invalid arguments. Use --help for usage details.")
+
+if __name__ == "__main__":
+    main()
