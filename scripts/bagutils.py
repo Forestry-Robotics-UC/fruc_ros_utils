@@ -114,7 +114,6 @@ def main():
     args = parser.parse_args()
 
     if args.use_gui:
-        app = QApplication(sys.argv)
         gui = SimplePyQtGUIKit()
         try:
             params = gui.PromptForParameters(args.function)
