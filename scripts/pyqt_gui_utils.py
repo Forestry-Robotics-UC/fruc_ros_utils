@@ -6,9 +6,9 @@
 # License: This code is licensed under the MIT License.
 #
 # Program: ROS Bag File Processing GUI Script
-# Purpose: UI to processes ROS bag files, applies various transformations, and provides utilities for managing bag files.
+# Purpose: UI to process ROS bag files, applies various transformations, and provides utilities for managing bag files.
 
-from PyQt5.QtWidgets import QApplication, QFileDialog, QWidget, QVBoxLayout, QCheckBox, QPushButton, QLabel, QGridLayout, QComboBox, QLineEdit, QStackedWidget, QListView, QDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QFileDialog, QStackedWidget, QListView, QDialog, QHBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QCheckBox, QScrollArea
 import sys
 import os
 import rosbag
@@ -71,25 +71,38 @@ class SimplePyQtGUIKit:
         return selected_files[0] if selected_files else ''
 
     @classmethod
-    def GetTopicsFromBag(cls, bag_path):
+    def GetTopicsFromBag(cls, path):
         """
-        Extract all unique topics from the given ROS bag file.
+        Extract all unique topics from the given ROS bag file or all bag files in a folder.
 
         Args:
-            bag_path (str): Path to the ROS bag file.
+            path (str): Path to the ROS bag file or a folder containing ROS bag files.
 
         Returns:
             list: List of unique topics.
         """
         topics = set()
         try:
-            with rosbag.Bag(bag_path, 'r') as bag:
-                for topic, _, _ in bag.read_messages():
-                    topics.add(topic)
+            if os.path.isdir(path):  # Check if the path is a folder
+                bag_files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith('.bag')]
+                if not bag_files:
+                    print(f"No ROS bag files found in the folder: {path}")
+                    return []
+                for bag_file in bag_files:
+                    print(f"Reading topics from bag file: {bag_file}")
+                    with rosbag.Bag(bag_file, 'r') as bag:
+                        for topic, _, _ in bag.read_messages():
+                            topics.add(topic)
+            elif os.path.isfile(path):  # Single bag file
+                print(f"Reading topics from single bag file: {path}")
+                with rosbag.Bag(path, 'r') as bag:
+                    for topic, _, _ in bag.read_messages():
+                        topics.add(topic)
+            else:
+                print(f"Invalid path: {path}")
         except Exception as e:
-            print(f"Error reading bag file: {e}")
-        return list(topics)
-
+            print(f"Error reading bag file(s) at {path}: {e}")
+        return sorted(topics)  # Return sorted list for better readability
     @classmethod
     def GetCheckButtonSelect(cls, selectList, title="Select", msg=""):
         """
@@ -106,20 +119,20 @@ class SimplePyQtGUIKit:
         print("Starting GetCheckButtonSelect")
         app = QApplication(sys.argv)
         win = QWidget()
-        layout = QGridLayout()
+        layout = QVBoxLayout()
 
         if msg:
             label = QLabel(msg)
-            layout.addWidget(label, 0, 0)
+            layout.addWidget(label)
 
         checkboxs = []
-        for i, select in enumerate(selectList):
+        for select in selectList:
             checkbox = QCheckBox(select)
-            layout.addWidget(checkbox, i + 1, 0)
+            layout.addWidget(checkbox)
             checkboxs.append(checkbox)
 
         btn = QPushButton("OK")
-        layout.addWidget(btn, len(selectList) + 1, 0)
+        layout.addWidget(btn)
 
         def on_button_click():
             app.quit()
@@ -135,136 +148,141 @@ class SimplePyQtGUIKit:
         return result
 
     @classmethod
-    def PromptForParameters(cls):
-        """
-        Prompt the user for the function to run and the necessary parameters.
-
-        Returns:
-            dict: Dictionary of parameters.
-        """
+    def PromptForParameters(cls, FUNCTION_CHOICES):
         print("PromptForParameters called")
         app = QApplication(sys.argv)
         win = QWidget()
-        layout = QVBoxLayout()
 
-        # Function selection
+        # Main layout
+        main_layout = QVBoxLayout()
+
+        # Static widgets
         function_label = QLabel("Select Function:")
-        layout.addWidget(function_label)
         function_combo = QComboBox()
-        functions = ['remove_topic', 'change_frame_id', 'print_topic_sizes', 'convert_imu_to_enu', 'merge_bags']
-        function_combo.addItems(functions)
-        layout.addWidget(function_combo)
+        function_combo.addItems(FUNCTION_CHOICES)
 
-        # Input/Output path selection
         path_label = QLabel("Select Input Path (Folder or Bag File):")
-        layout.addWidget(path_label)
         path_btn = QPushButton("Browse...")
-        layout.addWidget(path_btn)
         path_line_edit = QLineEdit()
-        layout.addWidget(path_line_edit)
 
         output_path_label = QLabel("Select Output Path (Folder or Bag File):")
-        layout.addWidget(output_path_label)
         output_path_btn = QPushButton("Browse...")
-        layout.addWidget(output_path_btn)
         output_path_line_edit = QLineEdit()
-        layout.addWidget(output_path_line_edit)
 
-        # Dynamic argument widgets
-        topic_label = QLabel("Select Topic(s):")
-        layout.addWidget(topic_label)
-        topic_checkboxes = []
-        frame_id_label = QLabel("New Frame ID:")
-        frame_id_input = QLineEdit()
+        # Add static widgets to layout
+        main_layout.addWidget(function_label)
+        main_layout.addWidget(function_combo)
+        main_layout.addWidget(path_label)
+        main_layout.addWidget(path_btn)
+        main_layout.addWidget(path_line_edit)
+        main_layout.addWidget(output_path_label)
+        main_layout.addWidget(output_path_btn)
+        main_layout.addWidget(output_path_line_edit)
 
-        # OK button
+        # Scrollable area for dynamic widgets
+        dynamic_widget_area = QWidget()
+        dynamic_layout = QVBoxLayout()
+        dynamic_widget_area.setLayout(dynamic_layout)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(dynamic_widget_area)
+        main_layout.addWidget(scroll_area)
+
+        # OK and Back buttons at the bottom
+        button_layout = QHBoxLayout()
         ok_btn = QPushButton("OK")
-        layout.addWidget(ok_btn)
+        back_btn = QPushButton("Back")
+        button_layout.addWidget(back_btn)
+        button_layout.addWidget(ok_btn)
+        main_layout.addLayout(button_layout)
 
+        # Dynamic widgets and params
+        topic_checkboxes = []
+        frame_id_input = QLineEdit()
+        num_images_input = QLineEdit()
+        seed_input = QLineEdit()
         params = {}
 
+        def clear_dynamic_widgets():
+            while dynamic_layout.count() > 0:
+                child = dynamic_layout.takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+        def clear_topic_widgets():
+            """Clear only topic-related widgets from the dynamic layout."""
+            for i in reversed(range(dynamic_layout.count())):
+                widget = dynamic_layout.itemAt(i).widget()
+                if isinstance(widget, QCheckBox) or (isinstance(widget, QLabel) and "Topic" in widget.text()):
+                    dynamic_layout.takeAt(i)
+                    widget.deleteLater()
+        def get_active_topic_checkboxes():
+            """
+            Retrieve all active QCheckBox widgets for topics from the dynamic layout.
+
+            Returns:
+                list: List of active QCheckBox widgets.
+            """
+            return [dynamic_layout.itemAt(i).widget() for i in range(dynamic_layout.count())
+                    if isinstance(dynamic_layout.itemAt(i).widget(), QCheckBox)]
+
         def update_dynamic_widgets():
+            clear_topic_widgets()
+            
             selected_function = function_combo.currentText()
-
-            # Clear previous dynamic widgets
-            for widget in topic_checkboxes:
-                layout.removeWidget(widget)
-                widget.setParent(None)
-            layout.removeWidget(frame_id_label)
-            layout.removeWidget(frame_id_input)
-            frame_id_input.setParent(None)
-
-            # Initialize topics list
-            topics = []
-
-            # Add widgets based on selected function
-            input_path = path_line_edit.text()
-            first_bag_file = None
-
-            if os.path.isdir(input_path):
-                # Handle folder selection
-                bag_files = [f for f in os.listdir(input_path) if f.endswith('.bag')]
-                if bag_files:
-                    first_bag_file = os.path.join(input_path, bag_files[0])
-                else:
-                    print("No bag files found in the selected folder.")
-                    return
-            else:
-                # Handle file selection
-                first_bag_file = input_path
-
-            if first_bag_file:
-                try:
-                    topics = cls.GetTopicsFromBag(first_bag_file)
-                except Exception as e:
-                    print(f"Error reading bag file: {e}")
-                    topics = []
-
-            if selected_function in ['remove_topic', 'change_frame_id', 'convert_imu_to_enu']:
-                for i, topic in enumerate(topics):
+            if selected_function == 'remove_topic':
+                dynamic_layout.addWidget(QLabel("Select Topic(s):"))
+                for topic in cls.GetTopicsFromBag(path_line_edit.text()):
                     checkbox = QCheckBox(topic)
-                    layout.addWidget(checkbox)
+                    dynamic_layout.addWidget(checkbox)
                     topic_checkboxes.append(checkbox)
+            elif selected_function == 'change_frame_id':
+                dynamic_layout.addWidget(QLabel("New Frame ID:"))
+                dynamic_layout.addWidget(frame_id_input)
+            elif selected_function == 'save_random_images':
+                dynamic_layout.addWidget(QLabel("Select Topic(s):"))
+                for topic in cls.GetTopicsFromBag(path_line_edit.text()):
+                    checkbox = QCheckBox(topic)
+                    dynamic_layout.addWidget(checkbox)
+                    topic_checkboxes.append(checkbox)
+                dynamic_layout.addWidget(QLabel("Number of Images:"))
+                dynamic_layout.addWidget(num_images_input)
+                dynamic_layout.addWidget(QLabel("Random Seed:"))
+                dynamic_layout.addWidget(seed_input)
 
-            if selected_function == 'change_frame_id':
-                layout.addWidget(frame_id_label)
-                layout.addWidget(frame_id_input)
-
-
-        def on_path_button_click():
-            selected_path = cls.GetPath()
-            if selected_path:
-                path_line_edit.setText(selected_path)
-                update_dynamic_widgets()
-
-        def on_output_path_button_click():
-            selected_path = cls.GetPath()
-            if selected_path:
-                output_path_line_edit.setText(selected_path)
 
         def on_ok_button_click():
-            selected_function = function_combo.currentText()
-            params.update({
-                'function': selected_function,
-                'input_path': path_line_edit.text(),
-                'output_path': output_path_line_edit.text(),
-                'topics': [cb.text() for cb in topic_checkboxes if cb.isChecked()] if topic_checkboxes else None
-            })
-
-            if selected_function == 'change_frame_id':
+            params['function'] = function_combo.currentText()
+            params['input_path'] = path_line_edit.text()
+            params['output_path'] = output_path_line_edit.text()
+            # Collect dynamic parameters
+            if params['function'] == 'remove_topic':
+                params['topics'] = [cb.text() for cb in get_active_topic_checkboxes() if cb.isChecked()]
+            elif params['function'] == 'change_frame_id':
                 params['new_frame_id'] = frame_id_input.text()
+            elif params['function'] == 'save_random_images':
+                params['num_images'] = int(num_images_input.text()) if num_images_input.text() else 10
+                params['seed'] = int(seed_input.text()) if seed_input.text() else 42
+                params['topics'] = [cb.text() for cb in get_active_topic_checkboxes() if cb.isChecked()]
 
             print(f"Parameters collected: {params}")
-            app.quit()
-
+            app.exit()
+        def on_path_button_click():
+            selected_path = cls.GetPath()
+            if selected_path and (os.path.isfile(selected_path) or os.path.isdir(selected_path)):
+                path_line_edit.setText(selected_path)
+                print(f"Selected bag file/folder path: {selected_path}")  # Debug output
+                update_dynamic_widgets()  # Call only after a valid path is set
+            else:
+                print("Invalid path selected.")
         function_combo.currentIndexChanged.connect(update_dynamic_widgets)
         path_btn.clicked.connect(on_path_button_click)
-        output_path_btn.clicked.connect(on_output_path_button_click)
+        output_path_btn.clicked.connect(lambda: output_path_line_edit.setText(cls.GetPath()))
         ok_btn.clicked.connect(on_ok_button_click)
+        back_btn.clicked.connect(clear_dynamic_widgets)
 
-        win.setLayout(layout)
+        win.setLayout(main_layout)
         win.setWindowTitle("Select Parameters")
         win.show()
         app.exec_()
-
         return params
