@@ -374,31 +374,24 @@ class RosbagUtils:
         preserve_bayer: bool = True,
     ) -> None:
         """
-        Process a single bag file OR all bag files in a folder.
+        Process one or more bag files with auto-illumination.
         - Corrects images from the provided topics.
-        - If 'report' is a directory, saves per-image report PNGs there and appends a CSV summary.
-        - If 'save_bag' is provided:
-            * For a single input bag: 'save_bag' can be a file path to write one corrected bag.
-            * For multiple input bags: treat 'save_bag' as an output directory; one corrected bag per input.
-              If a .bag file path is given while processing multiple inputs, its parent directory is used.
+        - If 'report' is a directory, saves per-image reports + CSV there.
+        - If 'save_bag' is provided, writes corrected bag(s).
         """
-        self.logger.debug(f"Starting auto_illumination, inputs={in_path}, outputs={out_path}, topics={topics}")
 
+        self.logger.debug(f"Starting auto_illumination: in={in_path}, out={out_path}, topics={topics}")
         os.makedirs(out_path, exist_ok=True)
         if report:
             if report is True:
                 report = out_path
             os.makedirs(report, exist_ok=True)
 
-        # Illumination enhancer (with your 'good' baseline + colored logging)
+        # Illumination enhancer
         cfg = IlluminationConfig(white_balance=white_balance, ego_theta_thresh_rad=ego_thresh_rad)
         enh = IlluminationEnhancer(config=cfg, logger=self.logger)
 
-        # Optional extrinsics (R_cam_imu)
-        R_cam_imu = load_extrinsics_yaml(extrinsics_yaml) if extrinsics_yaml else None
-        self.logger.debug(f"Extrinsics mode: {'yaml' if extrinsics_yaml else 'urdf/tf' if imu_frame else 'none'}")
-
-        # Collect bag files
+        # Bag file discovery
         pin = pathlib.Path(in_path)
         if pin.is_dir():
             bagfiles = sorted(str(p) for p in pin.glob("*.bag*") if p.is_file())
@@ -407,34 +400,32 @@ class RosbagUtils:
         if not bagfiles:
             self.logger.error("No bag files found in %s", in_path)
             return
-        self.logger.debug(f"Bagfiles discovered: {bagfiles}")
+        self.logger.debug(f"Bagfiles: {bagfiles}")
 
-        # Resolve save_bag usage (file vs dir)
+        # Save_bag handling
         out_bag_dir: Optional[pathlib.Path] = None
         single_out_path: Optional[str] = None
         if save_bag:
             sbp = pathlib.Path(save_bag)
             if len(bagfiles) > 1:
-                # Multiple inputs → use a directory
                 if sbp.suffix == ".bag":
                     self.logger.warning(
-                        "save_bag='%s' looks like a file but multiple input bags were found; "
-                        "using its parent directory instead.", save_bag
+                        "save_bag='%s' looks like a file but multiple bags found; using its parent dir.", save_bag
                     )
                     out_bag_dir = sbp.parent
                 else:
                     out_bag_dir = sbp
                 out_bag_dir.mkdir(parents=True, exist_ok=True)
             else:
-                # Single input → allow file or dir
                 if sbp.is_dir() or sbp.suffix != ".bag":
                     out_bag_dir = sbp
                     out_bag_dir.mkdir(parents=True, exist_ok=True)
                 else:
                     single_out_path = str(sbp)
 
+        # Build R_cam_imu maps (extrinsics)
         if extrinsics_yaml:
-            R_cam_imu_map = load_extrinsics_yaml_multi(extrinsics_yaml)
+            R_cam_imu_map = {"default": load_extrinsics_yaml(extrinsics_yaml)}
         elif imu_frame:
             sample_bag = bagfiles[0]
             R_cam_imu_map = build_R_cam_imu_per_topic(
@@ -447,269 +438,49 @@ class RosbagUtils:
         else:
             R_cam_imu_map = {}
 
-        with tqdm(total=len(bagfiles), desc="Processing bags") as pbar:
+
+        # Process each bag
+        with tqdm(total=len(bagfiles), desc="Bags", unit="bag", position=0) as bag_pbar:
+            
+            total_corrected = 0
             for bag_path in bagfiles:
+                bag_pbar.update(1)
 
-                pbar.set_postfix_str(os.path.basename(bag_path))
-
-                K_intr: Optional[np.ndarray] = None
-                last_imu: Optional[object] = None
-
-                # Decide writer path for this bag (if requested)
-                writer = None
+                # Resolve output path
                 if save_bag:
                     if single_out_path:
-                        writer_path = single_out_path
+                        out_bag_path = single_out_path
                     else:
-                        # Per-bag output in directory
                         base = os.path.basename(bag_path)
                         stem = os.path.splitext(base)[0]
-                        # Keep your user-provided suffix; append _corrected to be explicit
-                        writer_path = str((out_bag_dir / f"{stem}{suffix or ''}_corrected.bag"))
-                    writer = rosbag.Bag(writer_path, "w")
-
-                try:
-                    with rosbag.Bag(bag_path, "r") as in_bag:
-                        # We read all messages to allow saving a corrected bag properly.
-                        for topic, msg, t in in_bag.read_messages():
-                            mtype = msg._type if hasattr(msg, "_type") else ""
-
-                            # Track IMU / CameraInfo (no isinstance)
-                            if "Imu" in mtype:
-                                last_imu = msg
-                                if writer:
-                                    writer.write(topic, msg, t)
-                                continue
-                            if "CameraInfo" in mtype:
-                                try:
-                                    K_intr = np.array(msg.K, dtype=float).reshape(3, 3)
-                                except Exception:
-                                    K_intr = None
-                                if writer:
-                                    writer.write(topic, msg, t)
-                                continue
-
-                            # Correct only selected image topics
-                            if (topic in topics) and ("Image" in mtype):
-                                enc = getattr(msg, "encoding", "").lower()
-                                # self.logger.info(f"Encoding is {enc}")
-                                self.logger.debug(f"Message {topic} @ {t.to_nsec()}, type={mtype}, encoding={getattr(msg,'encoding','?')}")
-
-                                if enc.startswith("bayer_"):
-                                    # RAW path (preserve Bayer)
-                                    raw = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-                                    corrected, info = enh.correct_raw_bayer(raw, force=force)
-                                    # reports/CSV (optional demosaic only for visualization)
-                                    if report and (info.get("action") not in ("ok","good")):
-                                        vis = cv2.cvtColor(corrected, cv2.COLOR_BayerRG2BGR)  # choose converter per pattern
-                                        # ... call _save_report_figure with original=vis_from_raw, corrected=vis
-                                        enh._save_report_figure(
-                                            cv2.cvtColor(raw, cv2.COLOR_BayerRG2BGR), vis,
-                                            info["metrics_before"], info["metrics_after"],
-                                            info["action"], info["reason"],
-                                            os.path.join(report, f"{t.to_nsec()}_report.png"),
-                                            ego_info=info.get("egomotion_info"),
-                                            csv_path=os.path.join(report, "illumination_summary.csv"),
-                                            row_id=str(t.to_nsec()),
-                                        )
-                                    if writer:
-                                        out_msg = self.bridge.cv2_to_imgmsg(corrected, encoding=msg.encoding)  # same Bayer encoding
-                                        if hasattr(msg, "header"):
-                                            out_msg.header = msg.header
-                                        writer.write(topic, out_msg, t)
-
-                                else:
-                                    # COLOR path (current behavior, but now with per-topic R if available)
-                                    img = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                                    use_imu = (last_imu is not None) and (topic in R_cam_imu_map) and (K_intr is not None)
-                                    corrected, info = enh.correct_image(
-                                        img, force=force,
-                                        imu_msg=last_imu if use_imu else None,
-                                        K=K_intr, R_cam_imu=R_cam_imu_map.get(topic),
-                                        exposure_time=exposure_time,
-                                    )
-                                    # reports only (no mass PNG dump)
-                                    if report and (info.get("action") not in ("ok","good")):
-                                        enh._save_report_figure(
-                                            img, corrected,
-                                            info["metrics_before"], info["metrics_after"],
-                                            info["action"], info["reason"],
-                                            os.path.join(report, f"{t.to_nsec()}_report.png"),
-                                            ego_info=info.get("egomotion_info"),
-                                            csv_path=os.path.join(report, "illumination_summary.csv"),
-                                            row_id=str(t.to_nsec()),
-                                        )
-                                    if writer:
-                                        corr_msg = self.bridge.cv2_to_imgmsg(corrected, encoding="bgr8")
-                                        if hasattr(msg, "header"):
-                                            corr_msg.header = msg.header
-                                        writer.write(topic, corr_msg, t)
-                                self.logger.debug(f"Message {topic} @ {t.to_nsec()}, type={mtype}, encoding={getattr(msg,'encoding','?')}")
-                                self.logger.debug(f"Illumination decision: action={info['action']}, reason={info['reason']}")
-
-                finally:
-                    if writer:
-                        writer.close()
-
-                self.logger.info("Finished illumination for %s", bag_path)
-                pbar.update(1)
-
-        # Small run summary in logs
-        try:
-            summary = enh.get_run_summary()
-            self.logger.info(
-                "Illumination summary — corrected: %d / %d images, egomotion corrections: %d",
-                summary.get("corrected_images", 0),
-                summary.get("total_images", 0),
-                summary.get("egomotion_corrections", 0),
-            )
-        except Exception:
-            pass
-
-    def preview_illumination(
-        self,
-        in_path: str,
-        out_path: str,
-        topics: List[str],
-        report: Optional[str],
-        force: bool,
-        suffix: str,
-        white_balance: bool,
-        num_messages: int = 50,
-        num_bags: int = 3,
-        seed: int = 42,
-        extrinsics_yaml: Optional[str] = None,
-        exposure_time: float = 0.006,
-        ego_thresh_rad: float = 0.0025,
-        imu_frame: Optional[str] = None,
-        urdf_path: Optional[str] = None,
-        tf_static_topic: str = "/tf_static",
-        preserve_bayer: bool = True,
-
-    ) -> None:
-        """
-        Randomly sample messages from a subset of bags in a folder and save corrected previews.
-        IMU/CameraInfo are auto-detected from the sampled stream (no isinstance).
-        """
-        self.logger.debug(f"Previewing illumination with num_messages={num_messages}, num_bags={num_bags}, topics={topics}")
-        os.makedirs(out_path, exist_ok=True)
-        if report:
-            if report is True:
-                report = out_path
-            os.makedirs(report, exist_ok=True)
-
-        cfg = IlluminationConfig(white_balance=white_balance, ego_theta_thresh_rad=ego_thresh_rad)
-        enh = IlluminationEnhancer(config=cfg, logger=self.logger)
-
-        if extrinsics_yaml:
-            R_cam_imu_map = load_extrinsics_yaml_multi(extrinsics_yaml)
-        elif imu_frame:
-            sample_bag = bagfiles[0]
-            R_cam_imu_map = build_R_cam_imu_per_topic(
-                sample_bag_path=sample_bag,
-                topics=topics,
-                imu_frame=imu_frame,
-                urdf_path=urdf_path,
-                tf_static_topic=tf_static_topic,
-            )
-        else:
-            R_cam_imu_map = {}
-        K_intr: Optional[np.ndarray] = None
-        last_imu: Optional[Imu] = None
-
-        bag_files = [os.path.join(in_path, f) for f in os.listdir(in_path) if f.endswith(".bag")]
-        if not bag_files:
-            self.logger.warning("No .bag files in %s", in_path)
-            return
-
-        random.seed(seed)
-        chosen_bags = random.sample(bag_files, min(num_bags, len(bag_files)))
-        self.logger.debug(f"Chosen bags: {chosen_bags}")
-
-        def reservoir_sample(iterator, k: int):
-            sample = []
-            for n, item in enumerate(iterator, start=1):
-                if n <= k:
-                    sample.append(item)
+                        out_bag_path = str((out_bag_dir / f"_corrected.bag"))
                 else:
-                    j = random.randint(1, n)
-                    if j <= k:
-                        sample[j - 1] = item
-            return sample
-        total_processed = 0
+                    out_bag_path = None
 
-        with tqdm(total=len(chosen_bags), desc="Processing bags") as pbar:
+                # Call into IlluminationEnhancer
+                summary = enh.process_bag(
+                    bag_path=bag_path,
+                    out_bag_path=out_bag_path,
+                    topics=topics,
+                    report_dir=report,
+                    force=force,
+                    exposure_time=exposure_time,
+                    R_cam_imu_map=R_cam_imu_map,
+                    preserve_bayer=preserve_bayer,
+                )
+                corrected = summary.get("corrected_images", 0)
+                total_corrected += corrected
+                self.logger.info("Finished illumination for %s", bag_path)
+                self.logger.info(
+                    "Summary — corrected: %d / %d images, egomotion corrections: %d",
+                    corrected,
+                    summary.get("total_images", 0),
+                    summary.get("egomotion_corrections", 0),
+                )
 
-            for bag_file in chosen_bags:
-                pbar.set_postfix_str(os.path.basename(bag_file))
-                with rosbag.Bag(bag_file, "r") as bag:
-                    processed_images = 0
-                # Sample from the user-selected topics only (no extra undefined vars)
-                    sampled = reservoir_sample(
-                        bag.read_messages(topics=topics),
-                        num_messages,
-                    )
-                    # Collect the topics we actually got in the sample
-                    sampled_topics = {topic for topic, _, _ in sampled}
-                    self.logger.debug(f"Sampled topics={sorted(sampled_topics)} from {bag_file}")
-
-                    # Check if any of the requested topics are in the sample
-                    valid_sampled = [t for t in topics if t in sampled_topics]
-                    if not valid_sampled:
-                        self.logger.warning(
-                            f"No requested topics from {topics} appeared in the sampled messages of {bag_file}. "
-                            f"Sampled topics: {sorted(sampled_topics)}"
-                        )
-
-                    for topic, msg, t in tqdm(sampled, desc=f"Preview {os.path.basename(bag_file)}"):
-                        # Update IMU / CameraInfo state when those are included in the sampled topics
-                        if "Imu" in msg._type:
-                            last_imu = msg
-                            continue
-                        if "CameraInfo" in msg._type:
-                            try:
-                                K_intr = np.array(msg.K, dtype=float).reshape(3, 3)
-                            except Exception:
-                                K_intr = None
-                            continue
-                        # Only correct images from the selected topics
-                        if topic in topics and "Image" in msg._type:
-                            processed_images += 1
-                            total_processed += 1
-                            img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-                            use_imu = (last_imu is not None) and (R_cam_imu is not None) and (K_intr is not None)
-                            corrected, info = enh.correct_image(
-                                img,
-                                force=force,
-                                imu_msg=last_imu if use_imu else None,
-                                K=K_intr,
-                                R_cam_imu= R_cam_imu_map.get(topic),
-                                exposure_time=exposure_time,
-                            )
-
-                            fname = f"PREVIEW_{pathlib.Path(bag_file).stem}_{topic.strip('/').replace('/','_')}_{t.to_nsec()}{suffix}.png"
-                            cv2.imwrite(os.path.join(out_path, fname), corrected)
-                            if report and (info.get("action") not in ("ok", "good")):
-                                enh._save_report_figure(
-                                    img, corrected,
-                                    info.get("metrics_before"), info.get("metrics_after"),
-                                    info.get("action"), info.get("reason"),
-                                    os.path.join(report, fname.replace(".png", "_report.png")),
-                                    ego_info=info.get("egomotion_info"),
-                                    csv_path=os.path.join(report, "illumination_summary.csv"),
-                                    row_id=str(t.to_nsec()),
-                                )
-                            self.logger.debug(f"Preview {topic}@{t.to_nsec()}, action={info['action']}, reason={info['reason']}")
-
-
-                if processed_images == 0:
-                    self.logger.warning(f"No images processed in {bag_file} (topics: {topics})")
-                pbar.update(1)
-
-
-            if total_processed == 0:
-                raise RuntimeError("No images processed across all bags. "
-                                       "Check your --topics argument: must include an Image topic.")
+                # Update outer progress bar
+                bag_pbar.update(1)
+                bag_pbar.set_postfix({"corrected_total": total_corrected})
 
 
 # --------------------------- CLI Parser -------------------------------------
@@ -861,21 +632,21 @@ def main() -> None:
             tf_static_topic=args.tf_static_topic,
             preserve_bayer=args.preserve_bayer,
         )
-    elif args.cmd == "preview_illumination":
-        bu.preview_illumination(
-            args.in_path, args.out_path, args.topics,
-            report=args.report, force=args.force,
-            suffix=args.suffix, white_balance=not args.no_wb,
-            num_messages=args.num_messages,
-            num_bags=args.num_bags, seed=args.seed,
-            extrinsics_yaml=args.extrinsics_yaml,
-            exposure_time=args.exposure_time,
-            ego_thresh_rad=args.ego_thresh_rad,
-            imu_frame=args.imu_frame,
-            urdf_path=args.urdf,
-            tf_static_topic=args.tf_static_topic,
-            preserve_bayer=args.preserve_bayer,
-        )
+    # elif args.cmd == "preview_illumination":
+    #     bu.preview_illumination(
+    #         args.in_path, args.out_path, args.topics,
+    #         report=args.report, force=args.force,
+    #         suffix=args.suffix, white_balance=not args.no_wb,
+    #         num_messages=args.num_messages,
+    #         num_bags=args.num_bags, seed=args.seed,
+    #         extrinsics_yaml=args.extrinsics_yaml,
+    #         exposure_time=args.exposure_time,
+    #         ego_thresh_rad=args.ego_thresh_rad,
+    #         imu_frame=args.imu_frame,
+    #         urdf_path=args.urdf,
+    #         tf_static_topic=args.tf_static_topic,
+    #         preserve_bayer=args.preserve_bayer,
+    #     )
 
     elif args.cmd == "calculate_bag_duration":
         bu.calculate_bag_duration(args.in_path)
