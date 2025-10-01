@@ -1,3 +1,5 @@
 __pycache__
 *.pyc
 reports/
+reports.*
+src/fruc_ros_utils.egg-info/
