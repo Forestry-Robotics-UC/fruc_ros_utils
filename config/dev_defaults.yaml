@@ -8,14 +8,13 @@ illumination:
 
   # Targets for gamma correction
   target_mean_under: 135.0
-  target_mean_over: 120.0
+  target_mean_over: 140.0
 
-  # Decision thresholds
-  mean_dark: 85.0
-  mean_bright: 170.0
-  pct_dark_th: 25.0
-  pct_bright_th: 20.0
-  dyn_range_min: 60.0
+  mean_dark: 95.0        # was 85
+  mean_bright: 165.0     # was 170
+  pct_dark_th: 5.0       # was 25
+  pct_bright_th: 15.0    # was 20
+  dyn_range_min: 210.0   # was 60
 
   # Gamma clamps
   gamma_min: 0.6
@@ -48,6 +47,7 @@ illumination:
   mf_align: "flow"            # "flow" | "ego"
   mf_sharpness_metric: "laplacian"
   mf_sigma: 1.0
+  mf_min_sharpness: 75.0 # was 50
 
 image_utils:
   # Retinex / LIME
@@ -64,17 +64,8 @@ metrics:
   sobel_ksize: 3
   laplacian_ksize: 3
 
-imu:
-  imu_frame: "imu_link"
-  tf_static_topic: "/tf_static"
-  urdf_path: null
-
-extrinsics:
-  extrinsics_yaml: null
-
 bagutils:
   # Runtime options
-  parallel: false
   preserve_bayer: true
   exposure_time: 0.01
   force: false

@@ -11,7 +11,7 @@ illumination:
   deblur_mode: "multiframe"  # single | multiframe | off
 
   # Exposure thresholds (user-level)
-  mean_dark: 85.0
+  mean_dark: 95.0
   mean_bright: 170.0
 
   # Output/report
@@ -19,7 +19,7 @@ illumination:
   report: "reports/"
 
 bagutils:
-  in_path: "/home/duda/flagstaff_hill_for_post_processing/2024_08_29/collect_01/easy_raw/"
+  in_path: "/home/duda/flagstaff_hill_for_post_processing/2024_08_29/collect_01/raw/"
   out_path: "/home/duda/flagstaff_hill_for_post_processing/2024_08_29/collect_01/bags_corrected/"
   save_bag: null
   topics: ["/left/camera/image_raw/"]
