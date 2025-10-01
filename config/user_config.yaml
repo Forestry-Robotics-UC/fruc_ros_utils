@@ -1,0 +1,40 @@
+# ----------------- USER CONFIG -----------------
+
+illumination:
+  # Basic correction options
+  white_balance: true
+  under_method: "dynamic"   # dynamic | clahe | gamma | msr | lime
+  over_method: "dynamic"    # dynamic | reinhard | drago | mantiuk | clahe | msr | lime
+
+  # Enable/disable corrections
+  deblur_enabled: true
+  deblur_mode: "multiframe"  # single | multiframe | off
+
+  # Exposure thresholds (user-level)
+  mean_dark: 85.0
+  mean_bright: 170.0
+
+  # Output/report
+  force: false
+  report: "reports/"
+
+bagutils:
+  in_path: "/home/duda/flagstaff_hill_for_post_processing/2024_08_29/collect_01/easy_raw/"
+  out_path: "/home/duda/flagstaff_hill_for_post_processing/2024_08_29/collect_01/bags_corrected/"
+  save_bag: null
+  topics: ["/left/camera/image_raw/"]
+  # , "/left/camera/camera_info", "/vectornav/IMU"]
+
+imu:
+  imu_frame: "imu_link"
+  urdf_path: "/mnt/nas_fruc/ENTFAC/data/safeforest_payload_v2.urdf"
+  tf_static_topic: "/tf_static"
+
+extrinsics:
+  extrinsics_yaml: null  
+
+navsat:
+  # Default export options
+  csv_name: "navsat.csv"
+  kml_name: "navsat.kml"
+

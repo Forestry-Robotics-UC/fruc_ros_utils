@@ -1,0 +1,80 @@
+# ----------------- DEV CONFIG -----------------
+
+illumination:
+  # WB + CLAHE
+  white_balance: true
+  clahe_clip_limit: 2.8
+  clahe_tiles: 8
+
+  # Targets for gamma correction
+  target_mean_under: 135.0
+  target_mean_over: 120.0
+
+  # Decision thresholds
+  mean_dark: 85.0
+  mean_bright: 170.0
+  pct_dark_th: 25.0
+  pct_bright_th: 20.0
+  dyn_range_min: 60.0
+
+  # Gamma clamps
+  gamma_min: 0.6
+  gamma_max: 1.8
+
+  # RAW path options
+  raw_enable_clahe: false
+  raw_p_low: 1.0
+  raw_p_high: 99.0
+  raw_gamma_strength: 0.7
+  raw_target_mean_under: 135.0
+  raw_target_mean_over: 120.0
+  raw_gamma_min: 0.75
+  raw_gamma_max: 1.35
+
+  # Egomotion
+  ego_theta_thresh_rad: 0.0025
+
+  # Deblur
+  deblur_enabled: true
+  deblur_mode: "multiframe"   # "single" | "multiframe" | "off"
+  deblur_algorithm: "lucy"    # "lucy" | "wiener"
+  deblur_iters: 15
+  deblur_wiener_k: 0.01
+  deblur_psf_max_px: 25.0
+  deblur_psf_min_px: 2.0
+
+  # Multi-frame fusion
+  mf_window: 3
+  mf_align: "flow"            # "flow" | "ego"
+  mf_sharpness_metric: "laplacian"
+  mf_sigma: 1.0
+
+image_utils:
+  # Retinex / LIME
+  retinex_scales: [15, 80, 250]
+  lime_guided_radius: 15
+  lime_guided_eps: 0.001
+
+  # Motion kernel
+  motion_kernel_width: 0.8
+
+metrics:
+  # Sharpness
+  sharpness_metric: "laplacian"   # laplacian | sobel
+  sobel_ksize: 3
+  laplacian_ksize: 3
+
+imu:
+  imu_frame: "imu_link"
+  tf_static_topic: "/tf_static"
+  urdf_path: null
+
+extrinsics:
+  extrinsics_yaml: null
+
+bagutils:
+  # Runtime options
+  parallel: false
+  preserve_bayer: true
+  exposure_time: 0.01
+  force: false
