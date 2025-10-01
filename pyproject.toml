@@ -1,0 +1,38 @@
+[project]
+name = "fruc-ros-utils"
+version = "0.1.0"
+description = "Refactored ROS bag utilities with illumination correction and navsat tools"
+authors = [
+    { name="Duda Andrada", email="duda.andrada@isr.uc.pt" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+    "numpy >=1.17,<2.0",
+    "opencv-python >=4.12,<5.0",
+    "scikit-image >=0.17,<0.22",
+    "matplotlib >=3.2,<3.9",
+    "pandas >=1.3,<2.3",
+    "scipy >=1.10,<2.0",
+    "tqdm >=4.67,<5.0",
+    "PyYAML >=5.3,<7.0",
+    "argcomplete >=3.6,<4.0",
+]
+
+[project.optional-dependencies]
+ros = [
+    "rosbag",         # via apt/rosdep, not PyPI
+    "rospy",          # via apt/rosdep
+    "sensor-msgs",    # via apt/rosdep
+    "cv-bridge",      # via apt/rosdep
+    "image-geometry", # via apt/rosdep
+]
+
+dev = [
+    "pytest",
+    "pipreqs",
+    "xdoctest",
+    "yapf",
+]

@@ -553,6 +553,15 @@ class RosbagUtils:
 
         df = pd.DataFrame(results)
         summary = df.describe().to_dict()
+        summary["_recommendations"] = vutils.recommend_params(df, cfg)
+
+        # Pretty print grouped recommendations
+        print("\n--- Parameter Recommendations ---")
+        for section, params in summary["_recommendations"].items():
+            print(f"[{section}]")
+            for k, v in params.items():
+                print(f"  {k:20s} current={v['current']} suggested={v['suggested']} ({v['reason']})")
+            print()
 
         if out_file:
             out_path = pathlib.Path(out_file)
