@@ -23,7 +23,7 @@ illumination:
   # RAW path options
   raw_enable_clahe: false
   raw_p_low: 1.0
-  raw_p_high: 99.0
+  raw_p_high: 98.0
   raw_gamma_strength: 0.7
   raw_target_mean_under: 135.0
   raw_target_mean_over: 120.0
@@ -44,15 +44,15 @@ illumination:
 
   # Multi-frame fusion
   mf_window: 3
-  mf_align: "flow"            # "flow" | "ego"
+  mf_align: "ego"            # "flow" | "ego"
   mf_sharpness_metric: "laplacian"
   mf_sigma: 1.0
-  mf_min_sharpness: 75.0 # was 50
+  mf_min_sharpness: 30.0 # was 50
 
 image_utils:
   # Retinex / LIME
-  retinex_scales: [15, 80, 250]
-  lime_guided_radius: 15
+  retinex_scales: [15, 80, 180]
+  lime_guided_radius: 10
   lime_guided_eps: 0.001
 
   # Motion kernel

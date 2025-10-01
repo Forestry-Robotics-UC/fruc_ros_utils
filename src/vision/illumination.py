@@ -33,6 +33,9 @@ from utils.logging_utils import get_logger
 from utils import image_utils as vutils
 from utils.metrics import vision as vmetrics
 
+import rosbag
+import cv_bridge
+
 # Optional plotting
 try:
     import matplotlib.pyplot as plt
@@ -99,6 +102,33 @@ class IlluminationEnhancer:
         self.config = config or IlluminationConfig()
         self.logger = logger or get_logger("Illumination", level="INFO")
 
+    @staticmethod
+    def load_intrinsics_for_topics(bag_path: str, topics: list, logger=None) -> dict:
+        """
+        Load camera intrinsics K (3x3) matrices from CameraInfo topics in a bag.
+        
+        Returns:
+            dict: {camera_info_topic: K_matrix}
+        """
+        import rosbag
+        import numpy as np
+
+        K_map = {}
+        with rosbag.Bag(bag_path, "r") as bag:
+            for topic, msg, t in bag.read_messages(topics=topics):
+                if hasattr(msg, "K"):  # Only CameraInfo messages have this
+                    try:
+                        K_map[topic] = np.array(msg.K, dtype=float).reshape(3, 3)
+                        if logger:
+                            logger.debug("Loaded intrinsics from %s:\n%s", topic, K_map[topic])
+                    except Exception as e:
+                        if logger:
+                            logger.warning("Failed to parse intrinsics from %s: %s", topic, e)
+                # Early stop if we found all camera_info topics we care about
+                if all(t.endswith("camera_info") for t in K_map.keys()):
+                    break
+        return K_map
+
     # ------------------- Public API -------------------
 
     def correct_auto(
@@ -138,7 +168,7 @@ class IlluminationEnhancer:
 
         # --- Illumination correction ---
         act2, reason2 = self._decide_action(m_before)
-        if force or act2 != "good":
+        if act2 != "good":
             img_bgr, m_after, gamma_used = self._apply_correction(img_bgr, act2, m_before)
             self.corrected_images += 1
             actions.append(act2)
@@ -188,6 +218,12 @@ class IlluminationEnhancer:
             "gamma_used": gamma_used,
             "egomotion_info": ego_info,
         }
+
+        self.logger.debug(
+            "Image processed | actions=%s | reasons=%s | gamma=%.3f | "
+            "metrics_before=%s | metrics_after=%s | ego_info=%s",
+            actions, reasons, gamma_used, m_before, m_after, ego_info
+        )
         self.last_gamma_used = gamma_used
         return img_bgr, result
 
@@ -201,6 +237,8 @@ class IlluminationEnhancer:
         exposure_time: float = 0.01,
         R_cam_imu_map: Optional[dict] = None,
         preserve_bayer: bool = False,
+        imu_topics: Optional[List[str]] = None,       # NEW
+        info_topics: Optional[List[str]] = None,      # NEW
     ) -> Dict:
         """
         Process one bag file with illumination correction.
@@ -216,8 +254,6 @@ class IlluminationEnhancer:
             preserve_bayer: If True, preserve Bayer encoding instead of converting to BGR
         """
         from bag.bagutils import RosbagUtils
-        import rosbag
-        import cv_bridge
 
         bu = RosbagUtils()
         results = {"corrected_images": 0, "total_images": 0}
@@ -229,6 +265,7 @@ class IlluminationEnhancer:
             ctx_size=self.config.mf_window
         )
         images = list(images_dict.values())[0]  # single bag here
+        self.logger.debug("process_bag called with force=%s", force)
 
         # Optional: prepare report CSV
         csv_path = None
@@ -239,18 +276,36 @@ class IlluminationEnhancer:
         # If saving back to a new bag
         bridge = cv_bridge.CvBridge()
         out_bag = rosbag.Bag(out_bag_path, "w") if out_bag_path else None
+        K_map = self.load_intrinsics_for_topics(bag_path, topics, self.logger)
+        imu_msgs = []
+        if imu_topics:
+            with rosbag.Bag(bag_path, "r") as bag:
+                for topic, msg, t in bag.read_messages(topics=imu_topics):
+                    imu_msgs.append((t.to_sec(), msg))
+
+        def find_nearest_imu(ts):
+            if not imu_msgs:
+                return None
+            return min(imu_msgs, key=lambda x: abs(x[0] - ts))[1]
 
         for idx, (ts, img, ctx) in enumerate(
             tqdm(images, desc=f"Illumination {os.path.basename(bag_path)}", unit="img")
         ):
             topic = topics[0]
+            cam_info_topic = topic.replace("image_raw", "camera_info")
+            K = K_map.get(cam_info_topic)
+
             R_cam_imu = None
             if R_cam_imu_map and topic in R_cam_imu_map:
                 R_cam_imu = R_cam_imu_map[topic]
 
+            imu_msg = find_nearest_imu(ts)
+
             corrected, info = self.correct_auto(
                 img,
                 force=force,
+                imu_msg=imu_msg,
+                K=K,
                 R_cam_imu=R_cam_imu,
                 exposure_time=exposure_time,
                 context_frames=ctx if self.config.deblur_mode == "multiframe" else None,
@@ -259,19 +314,39 @@ class IlluminationEnhancer:
             if "good" not in info["actions"]:
                 results["corrected_images"] += 1
             # Save to out_bag if requested
-            if out_bag:
+            if out_bag and topic.endswith("image_raw"):
                 try:
                     msg = bridge.cv2_to_imgmsg(corrected, encoding="bgr8")
                     msg.header.stamp = rospy.Time.from_sec(ts)
                     msg.header.frame_id = "camera"
-                    out_bag.write(topic, msg, rospy.Time.from_sec(ts))
+
+                    # Rename topic: .../image_raw → .../image_processed
+                    new_topic = topic.replace("image_raw", "image_processed")
+
+                    out_bag.write(new_topic, msg, rospy.Time.from_sec(ts))
+                    self.logger.debug("Wrote processed image to %s", new_topic)
                 except Exception as e:
-                    self.logger.warning(f"Failed to save corrected image at {ts}: {e}")
+                    self.logger.warning("Failed to save corrected image at %.6f on %s: %s", ts, topic, e)
+
+            # Normalize topic name into a safe prefix
+            topic_prefix = topic.strip("/").replace("/", "_")  # e.g. "left_camera_image_raw"
+            if topic_prefix.endswith("_image_raw"):
+                topic_prefix = topic_prefix.replace("_image_raw", "")  # → "left_camera"
+
+            ts_us = int(ts * 1e6)  # microsecond timestamp
+            filename = f"{topic_prefix}_{ts_us}_report.jpg"
+            save_path = os.path.join(report_dir, filename)
 
             # Save report figure + CSV if requested
             if report_dir and (force or "good" not in info["actions"]):
                 ts_us = int(ts * 1e6)  # microsecond timestamp
                 save_path = os.path.join(report_dir, f"{ts_us}_report.jpg")
+
+                if force and "good" in info["actions"]:
+                    self.logger.debug("Saving report for %s at %.6f (forced)", topic, ts)
+                else:
+                    self.logger.debug("Saving report for %s at %.6f (actions=%s)", topic, ts, info["actions"])
+
                 self._save_report_figure(
                     img, corrected,
                     info["metrics_before"], info["metrics_after"],

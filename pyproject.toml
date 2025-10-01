@@ -36,3 +36,14 @@ dev = [
     "xdoctest",
     "yapf",
 ]
+
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bag*", "system*", "vision*"]
+
+[project.scripts]
+bagutils = "bag.bagutils:main"

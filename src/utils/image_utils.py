@@ -312,113 +312,135 @@ def deblur_single(
 
 # ------ Choose params recommendations based on bags -------------
 
-def recommend_params(df, cfg: dict) -> dict:
+def recommend_params(df, cfg_tree: dict) -> dict:
     """
-    Generate parameter recommendations grouped by config section.
-    df : pandas.DataFrame with exposure/sharpness metrics
-    cfg: current (flattened) config
-    Returns: dict {section: {param: {current, suggested, reason}}}
+    Recommend parameter values from dataset statistics.
+    Works on a nested cfg tree:
+    {
+      "illumination": {...},
+      "raw": {...},
+      "deblur": {...},
+      "egomotion": {...},
+      "retinex_lime": {...},
+      "runtime": {...},
+    }
     """
 
-    recs = {
-        "illumination": {},
-        "raw": {},
-        "deblur": {},
-        "egomotion": {},
-        "retinex_lime": {},
-        "runtime": {}
+    recs = {}
+
+    # --- Illumination thresholds ---
+    illum = cfg_tree.get("illumination", {})
+    recs["illumination"] = {
+        "mean_dark": {
+            "current": illum.get("mean_dark"),
+            "suggested": df["mean_clipped"].quantile(0.05),
+            "reason": "5th percentile of mean_clipped (underexposed tail)"
+        },
+        "mean_bright": {
+            "current": illum.get("mean_bright"),
+            "suggested": df["mean_clipped"].quantile(0.95),
+            "reason": "95th percentile of mean_clipped (overexposed tail)"
+        },
+        "pct_dark_th": {
+            "current": illum.get("pct_dark_th"),
+            "suggested": df["pct_dark"].quantile(0.75),
+            "reason": "75th percentile of pct_dark (dark pixel fraction)"
+        },
+        "pct_bright_th": {
+            "current": illum.get("pct_bright_th"),
+            "suggested": df["pct_bright"].quantile(0.75),
+            "reason": "75th percentile of pct_bright (bright pixel fraction)"
+        },
+        "dyn_range_min": {
+            "current": illum.get("dyn_range_min"),
+            "suggested": df["dyn_range"].quantile(0.05),
+            "reason": "5th percentile of dyn_range (low contrast detection)"
+        },
     }
 
-    # ---------------- Illumination / exposure ----------------
-    recs["illumination"]["mean_dark"] = {
-        "current": cfg.get("mean_dark"),
-        "suggested": float(df["mean_clipped"].quantile(0.05)),
-        "reason": "5th percentile of mean_clipped (underexposed tail)"
-    }
-    recs["illumination"]["mean_bright"] = {
-        "current": cfg.get("mean_bright"),
-        "suggested": float(df["mean_clipped"].quantile(0.95)),
-        "reason": "95th percentile of mean_clipped (overexposed tail)"
-    }
-    recs["illumination"]["pct_dark_th"] = {
-        "current": cfg.get("pct_dark_th"),
-        "suggested": float(df["pct_dark"].quantile(0.75)),
-        "reason": "75th percentile of pct_dark (dark pixel fraction)"
-    }
-    recs["illumination"]["pct_bright_th"] = {
-        "current": cfg.get("pct_bright_th"),
-        "suggested": float(df["pct_bright"].quantile(0.75)),
-        "reason": "75th percentile of pct_bright (bright pixel fraction)"
-    }
-    recs["illumination"]["dyn_range_min"] = {
-        "current": cfg.get("dyn_range_min"),
-        "suggested": float(df["dyn_range"].quantile(0.05)),
-        "reason": "5th percentile of dyn_range (low contrast detection)"
+    # --- RAW processing ---
+    raw = cfg_tree.get("raw", {})
+    recs["raw"] = {
+        "raw_enable_clahe": {
+            "current": raw.get("raw_enable_clahe"),
+            "suggested": False,
+            "reason": "Enable if RAW images look flat/low contrast"
+        },
+        "raw_p_low": {
+            "current": raw.get("raw_p_low"),
+            "suggested": 1.0,
+            "reason": "Lower if dark clipping is frequent"
+        },
+        "raw_p_high": {
+            "current": raw.get("raw_p_high"),
+            "suggested": 98.0,
+            "reason": "Lower if highlight saturation is frequent"
+        },
     }
 
-    # ---------------- Deblur / Sharpness ----------------
-    recs["deblur"]["mf_min_sharpness"] = {
-        "current": cfg.get("mf_min_sharpness"),
-        "suggested": float(df["lap_var"].quantile(0.25)),
-        "reason": "25th percentile LapVar (blurry tail)"
-    }
-    recs["deblur"]["deblur_mode"] = {
-        "current": cfg.get("deblur_mode"),
-        "suggested": "multiframe" if len(df) > 500 else "single",
-        "reason": "Multiframe is more robust for continuous sequences"
-    }
-
-    # ---------------- RAW pipeline ----------------
-    recs["raw"]["raw_enable_clahe"] = {
-        "current": cfg.get("raw_enable_clahe"),
-        "suggested": cfg.get("raw_enable_clahe"),
-        "reason": "Enable if RAW images look flat/low contrast"
-    }
-    recs["raw"]["raw_p_low"] = {
-        "current": cfg.get("raw_p_low"),
-        "suggested": 0.5 if df["pct_dark"].mean() > 5 else 1.0,
-        "reason": "Lower if dark clipping is frequent"
-    }
-    recs["raw"]["raw_p_high"] = {
-        "current": cfg.get("raw_p_high"),
-        "suggested": 98.0 if df["pct_bright"].mean() > 15 else 99.0,
-        "reason": "Lower if highlight saturation is frequent"
+    # --- Deblur ---
+    deblur = cfg_tree.get("deblur", {})
+    recs["deblur"] = {
+        "mf_min_sharpness": {
+            "current": deblur.get("mf_min_sharpness"),
+            "suggested": df["lap_var"].quantile(0.25),
+            "reason": "25th percentile LapVar (blurry tail)"
+        },
+        "deblur_mode": {
+            "current": deblur.get("deblur_mode"),
+            "suggested": deblur.get("deblur_mode", "multiframe"),
+            "reason": "Multiframe is more robust for continuous sequences"
+        },
+        "deblur_algorithm": {
+            "current": deblur.get("deblur_algorithm"),
+            "suggested": "lucy",
+            "reason": "Lucy-Richardson is usually better for motion blur than Wiener"
+        },
     }
 
-    # ---------------- Egomotion ----------------
-    recs["egomotion"]["ego_theta_thresh_rad"] = {
-        "current": cfg.get("ego_theta_thresh_rad"),
-        "suggested": 0.0025 if df["lap_var"].median() < 100 else 0.005,
-        "reason": "Lower if blur persists, higher if false positives occur"
+    # --- Egomotion ---
+    ego = cfg_tree.get("egomotion", {})
+    recs["egomotion"] = {
+        "ego_theta_thresh_rad": {
+            "current": ego.get("ego_theta_thresh_rad"),
+            "suggested": 0.0025,
+            "reason": "Lower if blur persists, higher if false positives occur"
+        }
     }
 
-    # ---------------- Retinex / LIME ----------------
-    recs["retinex_lime"]["retinex_scales"] = {
-        "current": cfg.get("retinex_scales"),
-        "suggested": [15, 80, 180] if df["pct_bright"].max() > 50 else [15, 80, 250],
-        "reason": "Reduce largest scale if halos appear in bright areas"
-    }
-    recs["retinex_lime"]["lime_guided_radius"] = {
-        "current": cfg.get("lime_guided_radius"),
-        "suggested": 10 if df["lap_var"].mean() < 80 else 15,
-        "reason": "Smaller radius = sharper detail, larger = smoother"
-    }
-    recs["retinex_lime"]["lime_guided_eps"] = {
-        "current": cfg.get("lime_guided_eps"),
-        "suggested": cfg.get("lime_guided_eps"),
-        "reason": "Keep small (0.001–0.01); larger smooths more but loses detail"
+    # --- Retinex / LIME ---
+    retinex = cfg_tree.get("retinex_lime", {})
+    recs["retinex_lime"] = {
+        "retinex_scales": {
+            "current": retinex.get("retinex_scales"),
+            "suggested": [15, 80, 180],
+            "reason": "Reduce largest scale if halos appear in bright areas"
+        },
+        "lime_guided_radius": {
+            "current": retinex.get("lime_guided_radius"),
+            "suggested": 10,
+            "reason": "Smaller radius = sharper detail, larger = smoother"
+        },
+        "lime_guided_eps": {
+            "current": retinex.get("lime_guided_eps"),
+            "suggested": retinex.get("lime_guided_eps", 0.001),
+            "reason": "Keep small (0.001–0.01); larger smooths more but loses detail"
+        },
     }
 
-    # ---------------- Runtime ----------------
-    recs["runtime"]["preserve_bayer"] = {
-        "current": cfg.get("preserve_bayer"),
-        "suggested": False if not cfg.get("raw_enable_clahe", False) else True,
-        "reason": "Keep Bayer only if RAW processing pipeline is enabled"
-    }
-    recs["runtime"]["force"] = {
-        "current": cfg.get("force"),
-        "suggested": False,
-        "reason": "Set True only for benchmarking; False for normal runs"
+    # --- Runtime ---
+    runtime = cfg_tree.get("runtime", {})
+    recs["runtime"] = {
+        "preserve_bayer": {
+            "current": runtime.get("preserve_bayer"),
+            "suggested": False,
+            "reason": "Keep Bayer only if RAW processing pipeline is enabled"
+        },
+        "force": {
+            "current": runtime.get("force"),
+            "suggested": False,
+            "reason": "Set True only for benchmarking; False for normal runs"
+        }
     }
 
     return recs
