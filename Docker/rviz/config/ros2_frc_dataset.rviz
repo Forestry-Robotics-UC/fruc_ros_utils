@@ -1,0 +1,187 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Help Height: 78
+    Property Tree Widget:
+      Expanded:
+        - /Global Options
+        - /TF
+        - /PointCloud2
+        - /Image Color
+      Splitter Ratio: 0.5
+  - Class: rviz_common/Selection
+    Name: Selection
+    Show 3D Cursor: true
+    Show Interactive Markers: false
+  - Class: rviz_common/ToolProperties
+    Name: Tool Properties
+  - Class: rviz_common/Views
+    Name: Views
+    Expanded:
+      - /Current View
+
+Visualization Manager:
+  Class: "rviz_common::VisualizationManager"
+  Name: Visualization Manager
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Default Light:
+      Ambient:
+        B: 0.8
+        G: 0.8
+        R: 0.8
+      Direction:
+        X: 0
+        Y: 0
+        Z: 0
+      Diffuse:
+        B: 0.2
+        G: 0.2
+        R: 0.2
+      Specular:
+        B: 0
+        G: 0
+        R: 0
+      Intensity: 0.5
+    Fixed Frame: base_link
+    Frame Rate: 30
+    Hide/Show Disabled Controls: false
+    Yaw/Pitch/Roll Stabilized: true
+  Displays:
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Marker Scale: 1.0
+      NameSpace: ""
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Show Axes Length: 0.5
+      Show Namespaces: false
+      Show Tip Pose: true
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        Filter size: 0.0
+        History Policy: Keep Last
+        Ignore Transform Mismatch: false
+        Reliability Policy: Reliable
+        Value: /tf
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF Static
+      Marker Scale: 1.0
+      NameSpace: ""
+      Show Arrows: true
+      Show Axes: true
+      Show Names: false
+      Show Axes Length: 0.5
+      Show Namespaces: false
+      Show Tip Pose: true
+      Topic:
+        Depth: 10
+        Durability Policy: Transient Local
+        Filter size: 0.0
+        History Policy: Keep Last
+        Ignore Transform Mismatch: false
+        Reliability Policy: Reliable
+        Value: /tf_static
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Ground Grid
+      Alpha: 0.5
+      Cell Size: 1
+      Color: 160; 160; 160
+      Line Style:
+        Line Width: 0.03
+      Name: Ground Grid
+      Plane: XY
+      Plane Cell Count: 200
+      Reference Frame: base_link
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Ouster Points
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /ouster/points
+      Queue Size: 10
+      Style: Flat Squares
+      Use fixed frame: true
+      Position Transformer: XYZ
+      Color Transformer: Intensity
+      Alpha: 0.7
+      Point Size: 3
+      Min Intensity: 0
+      Max Intensity: 255
+      Min Color: 0; 0; 0
+      Max Color: 255; 255; 255
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Color Image
+      Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera/color/image_raw
+      Transport Hint: raw
+      Queue Size: 10
+      Enabled:
+        Value: true
+      Alpha: 1
+      Colormap: "Gray"
+      Min Value: 0
+      Max Value: 255
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Aligned Depth Image
+      Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /camera/aligned_depth_to_color/image_raw
+      Transport Hint: raw
+      Queue Size: 10
+      Enabled:
+        Value: true
+      Alpha: 1
+      Colormap: "Gray"
+      Min Value: 0
+      Max Value: 255
+    - Class: rviz_default_plugins/Imu
+      Enabled: true
+      Name: IMU
+      Topic:
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        Value: /imu/data
+      Alpha: 1
+      Axes Length: 1
+      Axes Radius: 0.1
+      Covariance:
+        X: 0
+        Y: 0
+        Z: 0
+        Color: 255; 255; 0
+      Frame Time: true
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Orbit
+    - Class: rviz_default_plugins/Select
+  Transform:
+    Rotation:
+      X: 0.5
+      Y: 0.5
+      Z: 0.5
+      W: 0.5
+    Translation:
+      X: 0
+      Y: 0
+      Z: 0
+
+Window Geometry:
+  Displays:
+    collapsed: false
+  QMainWindow State: 0x0

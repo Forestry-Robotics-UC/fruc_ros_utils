@@ -1,0 +1,19 @@
+# Large output / data directories — never needed inside images
+Docker/iKalibr/output/
+output/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Git history
+.git/
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+.pytest_cache/

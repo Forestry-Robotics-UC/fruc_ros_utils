@@ -1,0 +1,41 @@
+FROM osrf/ros:jazzy-desktop-full
+
+ARG LOCAL_UID=1000
+ARG LOCAL_GID=1000
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    existing_group="$(getent group ${LOCAL_GID} | cut -d: -f1 || true)"; \
+    if [ -n "${existing_group}" ] && [ "${existing_group}" != "fruc-docker" ]; then \
+        groupmod -n fruc-docker "${existing_group}"; \
+    elif ! getent group fruc-docker >/dev/null 2>&1; then \
+        groupadd -o --gid ${LOCAL_GID} fruc-docker; \
+    fi; \
+    existing_user="$(getent passwd ${LOCAL_UID} | cut -d: -f1 || true)"; \
+    if [ -n "${existing_user}" ] && [ "${existing_user}" != "fruc-docker" ]; then \
+        old_home="$(getent passwd "${existing_user}" | cut -d: -f6)"; \
+        usermod -l fruc-docker -g ${LOCAL_GID} -s /bin/bash "${existing_user}"; \
+        if [ -n "${old_home}" ] && [ "${old_home}" != "/home/fruc-docker" ] && [ -d "${old_home}" ]; then \
+            usermod -d /home/fruc-docker -m fruc-docker; \
+        else \
+            usermod -d /home/fruc-docker fruc-docker; \
+            mkdir -p /home/fruc-docker; \
+        fi; \
+    elif ! id -u fruc-docker >/dev/null 2>&1; then \
+        useradd -o --uid ${LOCAL_UID} --gid ${LOCAL_GID} --create-home --shell /bin/bash fruc-docker; \
+    else \
+        usermod -o --uid ${LOCAL_UID} --gid ${LOCAL_GID} --home /home/fruc-docker fruc-docker; \
+        mkdir -p /home/fruc-docker; \
+    fi; \
+    chown -R ${LOCAL_UID}:${LOCAL_GID} /home/fruc-docker; \
+    echo "fruc-docker ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/fruc-docker; \
+    chmod 440 /etc/sudoers.d/fruc-docker
+
+USER fruc-docker
+ENV HOME=/home/fruc-docker
+WORKDIR /home/fruc-docker
+
+CMD ["/bin/bash"]

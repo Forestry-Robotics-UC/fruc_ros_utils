@@ -160,13 +160,6 @@ include_directories(
 # all install targets should use catkin DESTINATION variables
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
 
-# Mark executable scripts (Python etc.) for installation
-# in contrast to setup.py, you can choose the destination
-catkin_install_python(PROGRAMS
-  scripts/bag_filter_example/bag_filter_example
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
 # install(TARGETS ${PROJECT_NAME}_node
@@ -180,6 +173,14 @@ catkin_install_python(PROGRAMS
 #   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
 # )
+
+catkin_install_python(PROGRAMS
+  scripts/bagutils
+  scripts/ros1utils
+  scripts/ros2utils
+  scripts/mapir_ndvi_node.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
 
 ## Mark cpp header files for installation
 # install(DIRECTORY include/${PROJECT_NAME}/

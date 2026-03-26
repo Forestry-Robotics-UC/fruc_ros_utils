@@ -1,97 +1,150 @@
 # fruc_ros_utils
 
-**fruc_ros_utils** is a collection of Python/ROS utilities for robotics perception and dataset processing.  
-The tools are designed to be used **directly with Python 3** and ROS bag files, without requiring a `catkin_make` build.  
+`fruc_ros_utils` is a ROS bag and dataset tooling repo.
 
-It provides helpers for:
+It is built around a few practical workflows:
+- inspect ROS 2 bags (`.mcap`, `.db3`)
+- convert ROS 2 bags to ROS 1 `.bag`
+- clean, filter, and rewrite ROS 1 bags
+- export metadata, navsat, and calibration-related artifacts
+- run these tools in Docker when you do not want to manage ROS environments locally
 
-- 📦 **ROS bag utilities** (filtering, extrinsics, IMU conversions, NavSat exports, topic metrics)  
-- 📷 **Image processing** (illumination correction, sharp frame extraction, deblurring)  
-- 🛰️ **Navigation satellite data** (CSV/KML exports, covariance-based metrics, quality reports)  
-- 💻 **System monitoring** (CPU temps, core frequencies, topic rates, USB device monitoring)
+This repo is not a single monolithic app. It is a toolbox. The fastest way to use it is to pick the right entrypoint for the job:
 
----
+| Tool | Use it for |
+| --- | --- |
+| `ros2utils` | ROS 2 bag inspection and ROS 2 -> ROS 1 conversion |
+| `ros1utils` | ROS 1 bag processing, navsat utilities, metadata export |
+| `bagutils` | Dispatcher entrypoint that forwards to `ros1utils` or `ros2utils` |
+| `scripts/` | One-off helpers and batch scripts |
+| `Docker/ros` | Dockerized ROS 1 / ROS 2 utility environment |
+| `Docker/iKalibr` | iKalibr runtime, not the `ros2utils` compose stack |
 
-## Repository Structure
+Temporal-alignment work is not bundled in this checkout. See
+`docs/TEMPORAL_ALIGNMENT.md` for the current status note.
 
-```
-fruc_ros_utils/
-├── CMakeLists.txt        # Optional ROS integration (not required for basic use)
-├── config/               # Default and user YAML configs
-│   ├── config_readme.md  # Documentation for configuration
-│   ├── dev_defaults.yaml
-│   └── user_config.yaml
-├── launch/               # Example ROS launch files
-├── scripts/              # Standalone helper scripts
-├── src/
-│   ├── bag/              # Bag file utilities (bagutils, navsat tools)
-│   ├── system/           # System monitoring and USB publishers
-│   ├── vision/           # Vision modules (illumination, sharp image extraction, etc.)
-│   └── utils/            # General-purpose utilities (logging, metrics, TF, conversions)
-├── LICENSE
-└── README.md
-```
+## Install Modes
 
-### Notes
-- `reports/` — auto-generated outputs (illumination reports, GPS CSVs, figures).  
-- `__pycache__/` — ignored Python bytecode.  
+This repo supports two normal ways of exposing the CLI tools:
 
----
+- `pip install .` or the Docker images: installs the Python package from `pyproject.toml` and exposes `bagutils`, `ros1utils`, and `ros2utils` as console scripts.
+- catkin workspace usage: `catkin_python_setup()` installs the same Python packages, and `CMakeLists.txt` installs matching wrapper scripts for `bagutils`, `ros1utils`, `ros2utils`, and `mapir_ndvi_node.py`.
 
-## Installation
-
-Requires **Python 3.8+** and ROS 1 (for `rosbag`, `sensor_msgs`, etc).  
-
-Install dependencies manually:
+That means the intended command names are the same in both environments:
 
 ```bash
-sudo apt-get install python3-rosbag python3-rospy python3-sensor-msgs
-pip install numpy opencv-python tqdm pyyaml pyproj pandas matplotlib scikit-image
+bagutils --help
+ros1utils --help
+ros2utils --help
 ```
 
-Or if a `requirements.txt` is provided:
+The standalone helpers in `scripts/` are compatibility wrappers around packaged modules. They are meant for direct repo usage and bootstrap `src/` automatically when needed.
+
+## Start Here
+
+If you only need the common bag workflows, start with Docker:
 
 ```bash
-pip install -r requirements.txt
+cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
+BAGS_PATH=/path/to/bags_root docker compose build noetic jazzy
 ```
 
----
-
-## Usage Examples
-
-Run scripts directly with `python3` (no `rosrun` required):
+Then:
 
 ```bash
-# Bag processing: illumination correction with reports
-python3 src/bag/bagutils.py auto_illumination     --in input.bag --out out_dir     --topics /camera/image_raw --report reports/
-
-# GPS export
-python3 src/bag/bagutils.py navsat_export     --in input.bag --out exports --topics /gps/fix
-
-# IMU conversion (NED → ENU)
-python3 src/bag/bagutils.py convert_imu_to_enu     --in input.bag --out corrected.bag --topics /imu/data
-
-# System monitoring (ROS node)
-python3 src/system/system_monitoring.py
+BAGS_PATH=/path/to/bags_root docker compose run --rm jazzy ros2utils --help
+BAGS_PATH=/path/to/bags_root docker compose run --rm noetic ros1utils --help
 ```
 
----
+Important:
+- run `docker compose ...` from the host shell
+- use the compose file in `Docker/ros` for `jazzy` and `noetic`
+- inside containers, your bag root is mounted at `/bags`
 
-## Configuration
+## Common Tasks
 
-- Default settings: [`config/dev_defaults.yaml`](./config/dev_defaults.yaml)  
-- User overrides: [`config/user_config.yaml`](./config/user_config.yaml)  
-- See [config/config_readme.md](./config/config_readme.md) for details.  
+For Jazzy -> Noetic bag conversion, the default workflow in this repo is offline:
+- inspect the ROS 2 bag first
+- convert offline with `rosbags` through `ros2utils convert_to_ros1`
+- only reach for a live `ros1_bridge` replay if offline conversion cannot handle a custom type
 
----
+Inspect a ROS 2 bag:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+  ros2utils info --bag /bags/session/run_01.mcap
+```
+
+Convert ROS 2 to ROS 1 with chunking:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+  ros2utils convert_to_ros1 \
+    --bag /bags/session/run_01.mcap \
+    --out /bags/session/run_01_ros1/ \
+    --split-duration 10m
+```
+
+Convert one or more ROS 2 bags with the standalone duration wrapper:
+
+```bash
+python3 scripts/convert_bags_per_duration.py \
+  --input-folder /path/to/ros2_bags \
+  --output-folder /path/to/ros1_bags \
+  --duration 300
+```
+
+That script is a thin compatibility layer over `ros2utils convert_to_ros1 --split-duration`, so there is only one split-and-convert implementation to maintain.
+
+Summarize a ROS 1 bag:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm noetic \
+  ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
+```
+
+Run the offline MAPIR NDVI helper:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm noetic \
+  ros1utils mapir_ndvi \
+    --in /bags/input.bag \
+    --out /bags/output_ndvi.bag \
+    --image-topic /mapir/image_raw \
+    --output-topic /mapir/indices/ndvi \
+    --publish-color \
+    --color-topic /mapir/indices_color/ndvi \
+    --colormap plant_health
+```
 
 ## Documentation
 
-- [SCRIPTS.md](./SCRIPTS.md) — high-level scripts (`bagutils`, `illumination`, `system_monitoring`, etc)  
-- [UTILS.md](./UTILS.md) — reusable internal utilities (logging, TF, image helpers, metrics)  
+- [docs/README.md](docs/README.md): documentation index
+- [docs/DOCKER.md](docs/DOCKER.md): Docker usage, compose files, host vs container paths
+- [docs/COMMANDS.md](docs/COMMANDS.md): command reference with examples
+- [docs/TEMPORAL_ALIGNMENT.md](docs/TEMPORAL_ALIGNMENT.md): status note for the split-out temporal-alignment tooling
 
----
+## Repository Layout
+
+```text
+fruc_ros_utils/
+|- config/              YAML defaults and user overrides
+|- Docker/              compose stacks for ROS tools, iKalibr, packet conversion, rviz
+|- docs/                documentation index and references
+|- pyproject.toml       Python package metadata used by Docker and pip installs
+|- scripts/             helper scripts and batch wrappers
+|- setup.py             catkin-compatible Python package metadata
+|- src/bag/             ros1utils, ros2utils, bagutils, sync audit tools
+|- src/system/          system monitoring and publishers
+|- src/utils/           shared helpers
+|- src/vision/          image and illumination utilities
+```
+
+## Config Files
+
+- `config/dev_defaults.yaml`: repo defaults
+- `config/user_config.yaml`: local overrides
 
 ## License
 
-MIT License — free to use, modify, and distribute.
+MIT

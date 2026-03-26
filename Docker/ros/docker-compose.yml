@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Common X11 + bag volume settings
+# ─────────────────────────────────────────────────────────────────────────────
+x-ros-common: &ros-common
+  user: "fruc-docker"
+  environment:
+    - USER=fruc-docker
+    - LOGNAME=fruc-docker
+    - DISPLAY=${DISPLAY:-:0}
+    - XDG_RUNTIME_DIR=/tmp
+    - QT_X11_NO_MITSHM=1
+    - HOME=/home/fruc-docker
+    - XAUTHORITY=/tmp/fruc.xauth
+    # Suppress spurious 'serialized_metadata' WARN from the mcap storage plugin
+    - RCUTILS_LOGGING_SEVERITY_THRESHOLD=ERROR
+    # Make the live-mounted fruc_ros_utils sources importable.
+    - PYTHONPATH=/workspace/fruc_ros_utils/src:/workspace/src
+  volumes:
+    - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    - ${XAUTHORITY:-${HOME}/.Xauthority}:/tmp/fruc.xauth:rw
+    # Live source editing — mounts over the COPY inside the image
+    - ../../../:/workspace:rw
+    # Bags — read-write so converted .bag files can be written alongside the originals
+    - ${BAGS_PATH:-/tmp}:/bags:rw
+    # Optional: mount a pre-built catkin/colcon workspace at /ws
+    # The Dockerfile .bashrc already sources /ws/devel|install/setup.bash if present
+    # - /path/to/your/catkin_ws:/ws:rw
+  network_mode: host
+  stdin_open: true
+  tty: true
+  # Run ../apply_compose_memory_limits.sh to generate a host-specific .env.
+  # These fallbacks keep the stack usable if no .env has been generated yet.
+  mem_limit: ${FRUC_ROS_MEM_LIMIT:-8g}
+  memswap_limit: ${FRUC_ROS_MEMSWAP_LIMIT:-8g}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Services
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+
+  # ---------------------------------------------------------------------------
+  # ROS 1 Noetic — for rosbag manipulation, bag conversion source side
+  # Usage:  docker compose run --rm noetic
+  #         docker compose run --rm noetic ros1utils <command>
+  # ---------------------------------------------------------------------------
+  noetic:
+    <<: *ros-common
+    build:
+      context: ../..             # fruc_ros_utils root
+      dockerfile: Docker/ros/Dockerfile.noetic
+      args:
+        LOCAL_UID: ${LOCAL_UID:-${FRUC_UID:-1000}}
+        LOCAL_GID: ${LOCAL_GID:-${FRUC_GID:-1000}}
+    image: fruc-ros-utils:noetic
+    container_name: fruc-noetic
+
+  # ---------------------------------------------------------------------------
+  # ROS 2 Jazzy — for ros2 cli, rosbag2, and rosbags-convert
+  # Usage:  docker compose run --rm jazzy
+  #         docker compose run --rm jazzy ros2 bag info <bag>
+  #         docker compose run --rm jazzy ros2utils convert_to_ros1 --bag /bags/...
+  # ---------------------------------------------------------------------------
+  jazzy:
+    <<: *ros-common
+    build:
+      context: ../..             # fruc_ros_utils root
+      dockerfile: Docker/ros/Dockerfile.jazzy
+      args:
+        LOCAL_UID: ${LOCAL_UID:-${FRUC_UID:-1000}}
+        LOCAL_GID: ${LOCAL_GID:-${FRUC_GID:-1000}}
+        ROSBAGS_INSTALL_SPEC: ${ROSBAGS_INSTALL_SPEC:-rosbags==0.10.11}
+    image: fruc-ros-utils:jazzy
+    container_name: fruc-jazzy

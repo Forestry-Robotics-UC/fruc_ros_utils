@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "fruc-ros-utils"
 version = "0.1.0"
@@ -10,10 +14,14 @@ readme = "README.md"
 requires-python = ">=3.8"
 
 dependencies = [
-    "numpy >=1.17,<2.0",
-    "opencv-python >=4.12,<5.0",
-    "scikit-image >=0.17,<0.22",
-    "matplotlib >=3.2,<3.9",
+    "numpy >=1.17,<2.0; python_version<'3.12'",
+    "numpy >=2.0,<2.3; python_version>='3.12'",
+    "opencv-python >=4.5,<4.12; python_version<'3.12'",
+    "opencv-python >=4.12,<5.0; python_version>='3.12'",
+    "scikit-image >=0.17,<0.22; python_version<'3.12'",
+    "scikit-image >=0.22,<0.23; python_version>='3.12'",
+    "matplotlib >=3.2,<3.9; python_version<'3.12'",
+    "matplotlib >=3.8.2,<3.9; python_version>='3.12'",
     "pandas >=1.3,<2.3",
     "scipy >=1.10,<2.0",
     "tqdm >=4.67,<5.0",
@@ -30,6 +38,14 @@ ros = [
     "image-geometry", # via apt/rosdep
 ]
 
+ros2 = [
+    # Pure-Python ROS 2 bag reader/writer + rosbags-convert CLI tool
+    # Use the repo's known-good rosbags version:
+    # pip install "rosbags==0.10.11"
+    # Provides: rosbags-convert  (used by Ros2BagUtils.convert_to_ros1)
+    "rosbags ==0.10.11",
+]
+
 dev = [
     "pytest",
     "pipreqs",
@@ -43,7 +59,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["bag*", "system*", "vision*"]
+include = ["bag*", "system*", "utils*", "vision*"]
 
 [project.scripts]
-bagutils = "bag.bagutils:main"
+bagutils = "bag.bagbridge:main"
+ros1utils = "bag.ros1utils:main"
+ros2utils = "bag.ros2utils:main"

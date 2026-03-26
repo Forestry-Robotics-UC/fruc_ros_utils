@@ -1,0 +1,243 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="sensor_rig">
+  <!-- Some properties -->
+  <xacro:include filename="properties.xacro" />
+
+  <!-- Property quick access -->
+  <xacro:property name="ouster_z_offset" value="0.206440" />
+  <xacro:property name="xsens_x_offset" value="${-0.015121}" />
+  <xacro:property name="xsens_y_offset" value="${-0.046950}" />
+  <xacro:property name="xsens_z_offset" value="0.0586" />
+  <xacro:property name="realsense_x_offset" value="0.8" />
+  <xacro:property name="realsense_y_offset" value="0.058" />
+  <xacro:property name="realsense_z_offset" value="0.082" />
+
+  <!-- LPResearch CANAL3 IMU -->
+  <joint name="base_link_to_imu" type="fixed">
+    <parent link="base_link" />
+    <child link="imu_link" />
+    <origin xyz="0.062 0.0 0.015" rpy="0.0 0.0 -${pi/2}" />
+  </joint>
+  <link name="imu_link" />
+
+  <!-- RM3100 MAG -->
+  <joint name="base_link_to_mag" type="fixed">
+    <parent link="base_link" />
+    <child link="mag" />
+    <origin xyz="0.2 0.0 0.204" rpy="0.0 0.0 ${pi}" />
+  </joint>
+  <link name="mag" />
+
+  <!-- Emlid Antenna -->
+  <joint name="base_link_to_gps" type="fixed">
+    <parent link="base_link" />
+    <child link="gps" />
+    <origin xyz="0.25 -0.11 0.204" rpy="0.0 0.0 0.0" />
+  </joint>
+  <link name="gps" />
+
+  <!-- OUSTER TOWER VISUAL LINK -->
+  <link name="ouster_tower_visual">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="${mesh_prefix}meshes/Assembly_OS1.obj" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- OUSTER TOWER VISUAL JOINT -->
+  <joint name="base_link_to_ouster_tower_visual" type="fixed">
+    <parent link="base_link" />
+    <child link="ouster_tower_visual" />
+    <origin xyz="-0.1105 0 0.204" rpy="0 0 ${PI}" />
+  </joint>
+
+  <!-- CAMERA TOWER VISUAL LINK -->
+  <link name="cameras_tower_visual">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="${mesh_prefix}meshes/Assembly_Cameras.obj" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- CAMERA TOWER VISUAL JOINT -->
+  <joint name="base_link_to_cameras_tower_visual" type="fixed">
+    <parent link="base_link" />
+    <child link="cameras_tower_visual" />
+    <origin xyz="-0.2407 0 0.204" rpy="0 0 ${PI}" />
+  </joint>
+
+  <!-- ========================================== -->
+  <!-- OUSTER OS1 LINK TREE (CALIBRATED)          -->
+  <!-- base_link -> os_sensor -> (os_lidar, os_imu) -->
+  <!-- ========================================== -->
+
+  <!-- OS_SENSOR LINK -->
+  <link name="os_sensor">
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- OS_SENSOR JOINT -->
+  <joint name="base_link_to_os_sensor" type="fixed">
+    <parent link="base_link" />
+    <child link="os_sensor" />
+    <origin xyz="-0.1105 0.0 0.404" rpy="0.0 0.0 0" />
+  </joint>
+
+  <!-- OS_LIDAR LINK -->
+  <link name="os_lidar">
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- OS_LIDAR JOINT -->
+  <joint name="os_sensor_to_os_lidar" type="fixed">
+    <parent link="os_sensor" />
+    <child link="os_lidar" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- OS_IMU LINK -->
+  <link name="os_imu">
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- OS_IMU JOINT -->
+  <joint name="os_sensor_to_os_imu" type="fixed">
+    <parent link="os_sensor" />
+    <child link="os_imu" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+  </joint>
+
+  <!-- GAZEBO SENSOR DEFINITIONS -->
+  <gazebo reference="os_sensor">
+    <material>Gazebo/Black</material>
+    <gravity>true</gravity>
+    <sensor name="laser" type="ray">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>false</visualize>
+      <update_rate>40</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.141592653589793</min_angle>
+            <max_angle>3.141592653589793</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.2</min>
+          <max>40</max>
+          <resolution>0.025</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.0</stddev>
+        </noise>
+      </ray>
+      <plugin filename="libgazebo_ros_laser.so" name="laser_controller">
+        <robotNamespace/>
+        <topicName>scan</topicName>
+        <frameName>os_sensor</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- ========================================== -->
+  <!-- REALSENSE LINK TREE (CALIBRATED)           -->
+  <!-- base_link -> camera_link -> camera_color_optical_frame -->
+  <!-- ========================================== -->
+
+  <!-- CAMERA_LINK (RealSense Physical Mount) -->
+  <link name="camera_link">
+    <collision>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <geometry>
+        <box size="0.09 0.03 0.035"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- CAMERA_LINK JOINT -->
+  <joint name="base_link_to_camera_link" type="fixed">
+    <parent link="base_link" />
+    <child link="camera_link" />
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 ${PI}" />
+  </joint>
+
+  <!-- CAMERA_COLOR_OPTICAL_FRAME LINK -->
+  <link name="camera_color_optical_frame">
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- CALIBRATED JOINT: os_lidar -> camera_color_optical_frame -->
+  <joint name="joint_os_lidar_to_camera_color_optical_frame" type="fixed">
+    <parent link="os_lidar" />
+    <child link="camera_color_optical_frame" />
+    <origin xyz="-0.07047971203783951 -0.043647424976414335 -0.11746556974885704"
+            rpy="-1.567434123604688 -0.021310026725099566 1.575724678749616" />
+  </joint>
+
+  <!-- ========================================== -->
+  <!-- MAPIR SURVEY3 LINK TREE                    -->
+  <!-- ========================================== -->
+
+  <!-- MAPIR_LINK (Survey3) -->
+  <link name="mapir_link">
+    <collision>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <geometry>
+        <box size="0.03 0.03 0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1e-5"/>
+      <origin rpy="0 0 0" xyz="0.0 0 0.0"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <!-- MAPIR_LINK JOINT -->
+  <joint name="joint_os_lidar_to_mapir_link" type="fixed">
+    <parent link="os_lidar" />
+    <child link="mapir_link" />
+    <origin xyz="-2.106662958227812 -0.12660079802004065 -0.4261798662202779"
+            rpy="-1.7155973620374017 0.03380963393293503 ${1.1839555185746582 + PI}" />
+  </joint>
+
+</robot>
