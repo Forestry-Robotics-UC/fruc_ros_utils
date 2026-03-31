@@ -14,7 +14,7 @@ from typing import Optional, List, Tuple
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
-import utils.metrics.vision as vmetrics
+import fruc_ros_utils.utils.metrics.vision as vmetrics
 
 # ---------------- ROS <-> OpenCV helpers ----------------
 

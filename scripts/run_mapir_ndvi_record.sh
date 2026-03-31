@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROS_DOCKER_DIR="$(cd "${SCRIPT_DIR}/../Docker/ros" && pwd)"
 
 INPUT_BAG="${MAPIR_INPUT_BAG:-/bags/input.bag}"
 OUTPUT_BAG="${MAPIR_OUTPUT_BAG:-/bags/mapir_ndvi.bag}"
@@ -20,7 +21,7 @@ VISIBLE_CHANNEL="${MAPIR_VISIBLE_CHANNEL:--1}"
 VISIBLE_BAND_NAME="${MAPIR_VISIBLE_BAND_NAME:-}"
 EPS="${MAPIR_NDVI_EPS:-1.0e-6}"
 
-cd "${SCRIPT_DIR}"
+cd "${ROS_DOCKER_DIR}"
 docker compose run --rm noetic bash -lc "
   set -euo pipefail
   source /opt/ros/noetic/setup.bash

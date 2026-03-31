@@ -41,7 +41,10 @@ if [ "$DOCKER_MEMORY_MB" -gt 65536 ]; then
     DOCKER_MEMORY_MB=65536
 fi
 
-CONVERTER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CONVERTER_DIR="${REPO_ROOT}/Docker/packet_converter"
+PACKET_SCRIPTS_DIR="${REPO_ROOT}/scripts/packet_converter"
 
 # Check Docker image exists
 DOCKER_IMAGE="ros2-apparatus-converter:jazzy"
@@ -103,7 +106,7 @@ rm -rf "$PROCESSED_MCAP_DIR"
 docker run --rm \
     --memory="${DOCKER_MEMORY_MB}m" \
     --user $(id -u):$(id -g) \
-    -v "$CONVERTER_DIR/scripts:/app/scripts:ro" \
+    -v "$PACKET_SCRIPTS_DIR:/app/scripts:ro" \
     -v "$INPUT_DIR:/work/input:ro" \
     -v "$INPUT_DIR:/work/output" \
     "ros2-apparatus-converter:jazzy" \
@@ -132,7 +135,7 @@ START=$(date +%s)
 docker run --rm \
     --memory="${DOCKER_MEMORY_MB}m" \
     --user $(id -u):$(id -g) \
-    -v "$CONVERTER_DIR/scripts:/app/scripts:ro" \
+    -v "$PACKET_SCRIPTS_DIR:/app/scripts:ro" \
     -v "$INPUT_DIR:/work/input:ro" \
     -v "$OUTPUT_BASE_DIR:/work/output" \
     --entrypoint bash \
@@ -152,7 +155,7 @@ fi
 docker run --rm \
     --memory="${DOCKER_MEMORY_MB}m" \
     --user $(id -u):$(id -g) \
-    -v "$CONVERTER_DIR/scripts:/app/scripts:ro" \
+    -v "$PACKET_SCRIPTS_DIR:/app/scripts:ro" \
     -v "$INPUT_DIR:/work/input:ro" \
     -v "$OUTPUT_BASE_DIR:/work/output" \
     --entrypoint bash \

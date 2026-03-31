@@ -42,7 +42,7 @@ x-ikalibr-base: &ikalibr-base
     # GPU/DRI for the 3D viewer; comment out if not available
     - /dev/dri:/dev/dri
   network_mode: host
-  # Run ../apply_compose_memory_limits.sh to generate a host-specific .env.
+  # Run ../../scripts/apply_compose_memory_limits.sh to generate a host-specific .env.
   # These fallbacks keep the stack usable if no .env has been generated yet.
   mem_limit: ${IKALIBR_MEM_LIMIT:-16g}
   memswap_limit: ${IKALIBR_MEMSWAP_LIMIT:-16g}

@@ -10,8 +10,9 @@ fi
 BAG_DIR="$(realpath "$1")"
 MEMORY_PERCENT="${2:-${COMPOSE_MEMORY_PERCENT:-70}}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+DOCKER_ROOT="${REPO_ROOT}/Docker"
+ROS_DOCKER_DIR="${DOCKER_ROOT}/ros"
 TIMESYNC_ROOT="$(realpath "${REPO_ROOT}/../rosbag_timesync_utils")"
 
 if [[ ! -d "$BAG_DIR" ]]; then
@@ -27,9 +28,9 @@ fi
 BAGS_ROOT="$(dirname "$BAG_DIR")"
 BAG_NAME="$(basename "$BAG_DIR")"
 
-bash "${DOCKER_ROOT}/apply_compose_memory_limits.sh" "$MEMORY_PERCENT"
+bash "${SCRIPT_DIR}/apply_compose_memory_limits.sh" "$MEMORY_PERCENT"
 
-cd "$SCRIPT_DIR"
+cd "$ROS_DOCKER_DIR"
 BAGS_PATH="$BAGS_ROOT" docker compose run --rm \
   -v "${TIMESYNC_ROOT}:/timesync:ro" \
   jazzy bash -lc "

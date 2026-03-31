@@ -29,9 +29,9 @@ import cv2
 from tqdm import tqdm
 from skimage import exposure
 
-from utils.logging_utils import get_logger
-from utils import image_utils as vutils
-from utils.metrics import vision as vmetrics
+from fruc_ros_utils.utils.logging_utils import get_logger
+from fruc_ros_utils.utils import image_utils as vutils
+from fruc_ros_utils.utils.metrics import vision as vmetrics
 
 import rosbag
 import cv_bridge
@@ -253,7 +253,7 @@ class IlluminationEnhancer:
             R_cam_imu_map: Dict of topic->rotation matrices for ego correction
             preserve_bayer: If True, preserve Bayer encoding instead of converting to BGR
         """
-        from bag.bagutils import RosbagUtils
+        from fruc_ros_utils.bag.bagutils import RosbagUtils
 
         bu = RosbagUtils()
         results = {"corrected_images": 0, "total_images": 0}

@@ -185,7 +185,7 @@ Inside `noetic`:
 
 ```bash
 ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
-python3 /workspace/fruc_ros_utils/src/bag/sync_audit_ros1.py /bags/session/run_01_ros1.bag
+python3 /workspace/fruc_ros_utils/src/fruc_ros_utils/bag/sync_audit_ros1.py /bags/session/run_01_ros1.bag
 ```
 
 ## Common Failure Cases

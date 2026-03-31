@@ -293,7 +293,7 @@ These shortcuts call the packaged helper modules directly, so they do not depend
 Single bag:
 
 ```bash
-python3 src/bag/sync_audit_ros1.py /path/to/bag.bag \
+python3 src/fruc_ros_utils/bag/sync_audit_ros1.py /path/to/bag.bag \
   [--imu /vectornav/IMU] \
   [--topics /left/camera/image_raw /right/camera/image_raw /velodyne_packets] \
   [--outlier_ms 20.0]
@@ -302,7 +302,7 @@ python3 src/bag/sync_audit_ros1.py /path/to/bag.bag \
 Dataset folder:
 
 ```bash
-python3 src/bag/sync_audit_ros1_dataset.py /path/to/bag_folder \
+python3 src/fruc_ros_utils/bag/sync_audit_ros1_dataset.py /path/to/bag_folder \
   [--imu /vectornav/IMU] \
   [--topics /left/camera/image_raw /right/camera/image_raw /velodyne_packets] \
   [--outdir /path/to/report_dir] \
@@ -388,16 +388,17 @@ ros1utils mapir_ndvi \
 Run the same offline conversion through the FRUC ROS Docker stack:
 
 ```bash
-cd Docker/ros
+cd /home/forestsphere/work_utils/fruc_ros_utils
 BAGS_PATH=/path/to/bags_root \
 MAPIR_INPUT_BAG=/bags/input.bag \
 MAPIR_OUTPUT_BAG=/bags/output_ndvi.bag \
-./run_mapir_ndvi_record.sh
+./scripts/run_mapir_ndvi_record.sh
 ```
 
 Useful overrides:
 
 ```bash
+cd /home/forestsphere/work_utils/fruc_ros_utils
 BAGS_PATH=/path/to/bags_root \
 MAPIR_INPUT_BAG=/bags/input.bag \
 MAPIR_OUTPUT_BAG=/bags/mapir_ndvi_only.bag \
@@ -407,5 +408,5 @@ MAPIR_FILTER_SET=OCN \
 MAPIR_PUBLISH_COLOR=true \
 MAPIR_NDVI_COLOR_TOPIC=/mapir/indices_color/ndvi \
 MAPIR_NDVI_COLORMAP=plant_health \
-./run_mapir_ndvi_record.sh
+./scripts/run_mapir_ndvi_record.sh
 ```

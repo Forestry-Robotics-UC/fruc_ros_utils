@@ -59,9 +59,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["bag*", "system*", "utils*", "vision*"]
+include = ["fruc_ros_utils*", "bag*", "system*", "utils*", "vision*"]
 
 [project.scripts]
-bagutils = "bag.bagbridge:main"
-ros1utils = "bag.ros1utils:main"
-ros2utils = "bag.ros2utils:main"
+bagutils = "fruc_ros_utils.bag.bagbridge:main"
+ros1utils = "fruc_ros_utils.bag.ros1utils:main"
+ros2utils = "fruc_ros_utils.bag.ros2utils:main"

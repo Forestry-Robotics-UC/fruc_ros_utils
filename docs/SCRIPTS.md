@@ -4,7 +4,7 @@ This document provides a clear description of each script in the repository, alo
 
 ---
 
-##  `src/bag`
+##  `src/fruc_ros_utils/bag`
 
 ### bagutils.py
 **Purpose:**  
@@ -48,7 +48,7 @@ Utilities for GPS/Navigation Satellite data.
 
 ---
 
-## `src/system`
+## `src/fruc_ros_utils/system`
 
 ### system_monitoring.py
 **Purpose:**  
@@ -85,7 +85,7 @@ Prints device classes and estimated traffic.
 
 ---
 
-## `src/vision`
+## `src/fruc_ros_utils/vision`
 
 ### illumination.py
 **Purpose:**  

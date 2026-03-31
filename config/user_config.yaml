@@ -1,44 +1,65 @@
 # ----------------- USER CONFIG -----------------
-
-illumination:
-  # Basic correction options
-  white_balance: true
-  under_method: "dynamic"   # dynamic | clahe | gamma | msr | lime
-  over_method: "dynamic"    # dynamic | reinhard | drago | mantiuk | clahe | msr | lime
-
-  # Enable/disable corrections
-  deblur_enabled: true
-  deblur_mode: "multiframe"  # single | multiframe | off
-
- 
-  # Updated thresholds from analyze_metrics
-  mean_dark: 116.7
-  mean_bright: 217.0
-
-
-
-  # Output/report
-  force: false
-  report: "/home/duda/reports/frick_path21"
+# Keep this file small and task-focused.
+# Precedence at runtime: CLI args > this file > dev_defaults.yaml.
 
 bagutils:
-  in_path: "/home/duda/frick_for_test/raw"
-  out_path: "/home/duda/frick_for_test/processed"
-  save_bag: "/home/duda/frick_for_test/processed"
-  topics: ["/left/camera/image_raw/", "/left/camera/camera_info", 
-           "/right/camera/image_raw/", "/right/camera/camera_info", 
-           "/vectornav/IMU"]
+  # Input bag or folder path.
+  in_path: "/path/to/input"
+  # Output folder path.
+  out_path: "/path/to/output"
+  # Optional output bag path for rewriting workflows.
+  save_bag: "/path/to/output/processed.bag"
+  # Topics to process (adapt to your dataset).
+  topics: ["/camera/image_raw", "/camera/camera_info", "/imu/data"]
 
-imu:
-  imu_frame: "imu_link"
-  urdf_path: "/mnt/nas_fruc/ENTFAC/data/safeforest_payload_v2.urdf"
-  tf_static_topic: "/tf_static"
+illumination:
+  # Enable white-balance pre-correction.
+  white_balance: true
+  # Underexposure strategy.
+  under_method: "dynamic"  # dynamic | clahe | gamma | msr | lime
+  # Overexposure strategy.
+  over_method: "dynamic"   # dynamic | reinhard | drago | mantiuk | clahe | msr | lime
+  # Toggle blur correction.
+  deblur_enabled: true
+  # Deblur mode selection.
+  deblur_mode: "multiframe"  # single | multiframe | off
+  # Brightness threshold for dark scene detection.
+  mean_dark: 116.7
+  # Brightness threshold for bright scene detection.
+  mean_bright: 217.0
+  # Force correction even when heuristics say "good".
+  force: false
+  # Output folder for plots and reports.
+  report: "/path/to/reports"
 
-extrinsics:
-  extrinsics_yaml: null  
+mapir_ndvi:
+  # Input MAPIR topic.
+  image_topic: "/mapir/image_raw"
+  # Raw NDVI output topic.
+  output_topic: "/mapir/indices/ndvi"
+  # Colorized NDVI output topic.
+  color_topic: "/mapir/indices_color/ndvi"
+  # NDVI colormap preset.
+  colormap: "plant_health"
+  # MAPIR filter-set preset.
+  filter_set: "OCN"
+  # Keep colorized stream enabled.
+  publish_color: true
 
 navsat:
-  # Default export options
+  # Default CSV output name.
   csv_name: "navsat.csv"
+  # Default KML output name.
   kml_name: "navsat.kml"
 
+imu:
+  # IMU frame ID used for TF/URDF lookups.
+  imu_frame: "imu_link"
+  # TF static topic used in recorded bags.
+  tf_static_topic: "/tf_static"
+  # Optional URDF path for frame transforms.
+  urdf_path: "/path/to/robot.urdf"
+
+extrinsics:
+  # Optional direct extrinsics YAML path.
+  extrinsics_yaml: null

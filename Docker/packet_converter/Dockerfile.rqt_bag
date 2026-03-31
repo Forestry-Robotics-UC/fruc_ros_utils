@@ -43,11 +43,11 @@ RUN set -eux; \
 
 WORKDIR /
 
-COPY docker_build/entrypoint.sh /ros_entrypoint.sh
-RUN chmod +x /ros_entrypoint.sh
+COPY docker_build/ros_entrypoint.py /ros_entrypoint.py
+RUN chmod +x /ros_entrypoint.py
 
 USER fruc-docker
 ENV HOME=/home/fruc-docker
 
-ENTRYPOINT [ "/ros_entrypoint.sh" ]
+ENTRYPOINT [ "python3", "/ros_entrypoint.py" ]
 CMD [ "rqt_bag" ]

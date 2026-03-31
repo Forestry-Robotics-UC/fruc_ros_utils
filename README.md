@@ -121,6 +121,7 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 
 - [docs/README.md](docs/README.md): documentation index
 - [docs/DOCKER.md](docs/DOCKER.md): Docker usage, compose files, host vs container paths
+- [docs/IKALIBR_DOCKER.md](docs/IKALIBR_DOCKER.md): iKalibr setup and troubleshooting
 - [docs/COMMANDS.md](docs/COMMANDS.md): command reference with examples
 - [docs/TEMPORAL_ALIGNMENT.md](docs/TEMPORAL_ALIGNMENT.md): status note for the split-out temporal-alignment tooling
 
@@ -129,15 +130,15 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 ```text
 fruc_ros_utils/
 |- config/              YAML defaults and user overrides
-|- Docker/              compose stacks for ROS tools, iKalibr, packet conversion, rviz
+|- Docker/              compose stacks for ROS tools and iKalibr
 |- docs/                documentation index and references
 |- pyproject.toml       Python package metadata used by Docker and pip installs
 |- scripts/             helper scripts and batch wrappers
 |- setup.py             catkin-compatible Python package metadata
-|- src/bag/             ros1utils, ros2utils, bagutils, sync audit tools
-|- src/system/          system monitoring and publishers
-|- src/utils/           shared helpers
-|- src/vision/          image and illumination utilities
+|- src/fruc_ros_utils/bag/     ros1utils, ros2utils, bagutils, sync audit tools
+|- src/fruc_ros_utils/system/  system monitoring and publishers
+|- src/fruc_ros_utils/utils/   shared helpers
+|- src/fruc_ros_utils/vision/  image and illumination utilities
 ```
 
 ## Config Files

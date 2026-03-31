@@ -121,6 +121,7 @@ def parse_custom_colormap(spec: str) -> List[Tuple[float, np.ndarray]]:
 
 
 def _plant_health_anchors() -> List[Tuple[float, np.ndarray]]:
+    """Return default normalized NDVI anchors encoded as BGR colors."""
     # BGR anchors ordered from low NDVI to high NDVI. High values end in green.
     return [
         (0.0, np.array([40.0, 40.0, 165.0], dtype=np.float32)),
@@ -133,6 +134,7 @@ def _interpolate_colormap(
     normalized: np.ndarray,
     anchors: Sequence[Tuple[float, np.ndarray]],
 ) -> np.ndarray:
+    """Interpolate BGR values for each normalized NDVI pixel using anchor colors."""
     flat = normalized.reshape(-1)
     values = np.array([a[0] for a in anchors], dtype=np.float32)
     colors = np.stack([a[1] for a in anchors], axis=0).astype(np.float32, copy=False)

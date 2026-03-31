@@ -28,7 +28,7 @@ x-ros-common: &ros-common
   network_mode: host
   stdin_open: true
   tty: true
-  # Run ../apply_compose_memory_limits.sh to generate a host-specific .env.
+  # Run ../../scripts/apply_compose_memory_limits.sh to generate a host-specific .env.
   # These fallbacks keep the stack usable if no .env has been generated yet.
   mem_limit: ${FRUC_ROS_MEM_LIMIT:-8g}
   memswap_limit: ${FRUC_ROS_MEMSWAP_LIMIT:-8g}

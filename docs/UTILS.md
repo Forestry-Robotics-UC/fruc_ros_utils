@@ -5,7 +5,7 @@ These modules are building blocks used across the repository.
 
 ---
 
-## 📂 `utils/tf_utils.py`
+## 📂 `src/fruc_ros_utils/utils/tf_utils.py`
 **Purpose:**  
 Helpers for handling TF and extrinsics (camera ↔ IMU calibration, URDF transforms).
 
@@ -19,7 +19,7 @@ Helpers for handling TF and extrinsics (camera ↔ IMU calibration, URDF transfo
 
 **Usage Example:**
 ```python
-from utils.tf_utils import build_R_cam_imu_per_topic
+from fruc_ros_utils.utils.tf_utils import build_R_cam_imu_per_topic
 
 R_map = build_R_cam_imu_per_topic(
     sample_bag_path="sample.bag",
@@ -31,7 +31,7 @@ R_map = build_R_cam_imu_per_topic(
 
 ---
 
-## 📂 `utils/image_utils.py`
+## 📂 `src/fruc_ros_utils/utils/image_utils.py`
 **Purpose:**  
 Vision utilities for ROS ↔ OpenCV conversions, demosaicing, enhancement, and deblurring.
 
@@ -46,7 +46,7 @@ Vision utilities for ROS ↔ OpenCV conversions, demosaicing, enhancement, and d
 
 **Usage Example:**
 ```python
-from utils import image_utils as vutils
+from fruc_ros_utils.utils import image_utils as vutils
 
 img_bgr = vutils.gray_world_white_balance(img_bgr)
 img_enhanced = vutils.apply_clahe_on_l(img_bgr, clip_limit=2.0, tiles=8)
@@ -54,7 +54,7 @@ img_enhanced = vutils.apply_clahe_on_l(img_bgr, clip_limit=2.0, tiles=8)
 
 ---
 
-## 📂 `utils/logging_utils.py`
+## 📂 `src/fruc_ros_utils/utils/logging_utils.py`
 **Purpose:**  
 Lightweight logging utilities with colorized console output and optional file logging.
 
@@ -65,7 +65,7 @@ Lightweight logging utilities with colorized console output and optional file lo
 
 **Usage Example:**
 ```python
-from utils.logging_utils import get_logger
+from fruc_ros_utils.utils.logging_utils import get_logger
 
 logger = get_logger("Illumination", level="DEBUG", log_file="logs/run.log")
 logger.info("This is a test message")
@@ -73,7 +73,7 @@ logger.info("This is a test message")
 
 ---
 
-## 📂 `utils/sensor_conversions.py`
+## 📂 `src/fruc_ros_utils/utils/sensor_conversions.py`
 **Purpose:**  
 Sensor frame convention conversions.
 
@@ -83,14 +83,14 @@ Sensor frame convention conversions.
 
 **Usage Example:**
 ```python
-from utils.sensor_conversions import imu_ned_to_enu
+from fruc_ros_utils.utils.sensor_conversions import imu_ned_to_enu
 
 imu_enu = imu_ned_to_enu(imu_msg_ned)
 ```
 
 ---
 
-## 📂 `utils/vision.py`
+## 📂 `src/fruc_ros_utils/utils/metrics/vision.py`
 **Purpose:**  
 Vision-related **metrics** (sharpness, exposure, fusion weights).
 
@@ -103,7 +103,7 @@ Vision-related **metrics** (sharpness, exposure, fusion weights).
 
 ---
 
-## 📂 `utils/navsat.py`
+## 📂 `src/fruc_ros_utils/utils/metrics/navsat.py`
 **Purpose:**  
 GPS/Navigation Satellite covariance-based accuracy metrics.
 
@@ -117,7 +117,7 @@ GPS/Navigation Satellite covariance-based accuracy metrics.
 
 **Usage Example:**
 ```python
-from utils.metrics.navsat import cov_metrics
+from fruc_ros_utils.utils.metrics.navsat import cov_metrics
 
 metrics = cov_metrics(msg.position_covariance)
 print(metrics["r95_major"])

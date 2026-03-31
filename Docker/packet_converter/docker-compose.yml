@@ -7,7 +7,7 @@ x-packet-common: &packet-common
   stdin_open: true
   tty: true
   privileged: true
-  # Run ../apply_compose_memory_limits.sh to generate a host-specific .env.
+  # Run ../../scripts/apply_compose_memory_limits.sh to generate a host-specific .env.
   # These fallbacks keep the stack usable if no .env has been generated yet.
   mem_limit: ${PACKET_CONVERTER_MEM_LIMIT:-8g}
   memswap_limit: ${PACKET_CONVERTER_MEMSWAP_LIMIT:-8g}
@@ -38,7 +38,7 @@ services:
       - ros2-net
     volumes:
       - /mnt/phd/datasets/curt_test_calib/jazzy_no_post/:/rosbags  # Place your .mcap or .bag files here
-      - ./scripts:/app/scripts  # Place your conversion scripts here
+      - ../../scripts/packet_converter:/app/scripts  # Shared packet-converter scripts
     environment:
       - PYTHONUNBUFFERED=1
       - USER=fruc-docker

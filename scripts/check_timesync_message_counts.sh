@@ -10,6 +10,7 @@ fi
 ORIG_DIR="$(realpath "$1")"
 PROC_DIR="$(realpath "${2:-${ORIG_DIR}_Processed_0}")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROS_DOCKER_DIR="$(cd "${SCRIPT_DIR}/../Docker/ros" && pwd)"
 
 if [[ ! -d "$ORIG_DIR" ]]; then
     echo "Original bag directory not found: $ORIG_DIR" >&2
@@ -48,7 +49,7 @@ print(os.path.relpath(sys.argv[1], sys.argv[2]))
 PY
 )"
 
-cd "$SCRIPT_DIR"
+cd "$ROS_DOCKER_DIR"
 BAGS_PATH="$COMMON_ROOT" docker compose run --rm jazzy bash -lc "
   set -eo pipefail
   export AMENT_TRACE_SETUP_FILES=\${AMENT_TRACE_SETUP_FILES-}

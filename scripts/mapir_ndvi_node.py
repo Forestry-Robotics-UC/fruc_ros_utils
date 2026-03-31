@@ -12,17 +12,17 @@ import numpy as np
 import rospy
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
-
-try:
-    from tqdm import tqdm
-except Exception:
-    tqdm = None
+from tqdm import tqdm
 
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path and SRC_ROOT.exists():
     sys.path.insert(0, str(SRC_ROOT))
 
-from vision.mapir_ndvi import colorize_ndvi, compute_ndvi_from_bgr, resolve_channels
+from fruc_ros_utils.vision.mapir_ndvi import (
+    colorize_ndvi,
+    compute_ndvi_from_bgr,
+    resolve_channels,
+)
 
 
 class MapirNdviNode:
@@ -99,7 +99,7 @@ class MapirNdviNode:
         self._last_preview_wall_time = 0.0
         self.progress = None
         rospy.on_shutdown(self._close_progress)
-        if self.show_progress and tqdm is not None:
+        if self.show_progress:
             self.progress = tqdm(
                 total=None,
                 desc="mapir_ndvi",

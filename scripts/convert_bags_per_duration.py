@@ -3,7 +3,7 @@
 """Compatibility wrapper for duration-based ROS 2 -> ROS 1 conversion.
 
 This script now delegates all bag splitting and conversion to
-``bag.ros2utils.Ros2BagUtils`` so there is only one implementation of the
+``fruc_ros_utils.bag.ros2utils.Ros2BagUtils`` so there is only one implementation of the
 split-and-convert logic in the repo.
 """
 
@@ -32,12 +32,13 @@ if str(SRC_ROOT) not in sys.path:
 
 def _ros2_bag_utils_cls():
     """Import Ros2BagUtils lazily so `--help` works without a ROS 2 runtime."""
-    from bag.ros2utils import Ros2BagUtils
+    from fruc_ros_utils.bag.ros2utils import Ros2BagUtils
 
     return Ros2BagUtils
 
 
 def _discover_bags(input_folder: Path, pattern: str) -> List[Path]:
+    """Discover ROS 2 bag files under ``input_folder`` using a glob pattern."""
     return sorted(
         path
         for path in input_folder.glob(pattern)
@@ -46,6 +47,7 @@ def _discover_bags(input_folder: Path, pattern: str) -> List[Path]:
 
 
 def _split_duration_arg(duration_s: int, bag_duration_s: float, skip_split_if_under: int) -> str | None:
+    """Return ``<N>s`` split arg when splitting should be enabled, else ``None``."""
     if skip_split_if_under > 0 and bag_duration_s < float(skip_split_if_under):
         return None
     if bag_duration_s <= float(duration_s):
@@ -65,6 +67,7 @@ def _convert_one_bag(
     validate: bool,
     skip_split_if_under: int,
 ) -> int:
+    """Convert one ROS 2 bag to ROS 1, optionally enabling duration splitting."""
     utils = _ros2_bag_utils_cls()()
     total_duration = utils.bag_duration(str(bag_path))
     split_duration = _split_duration_arg(duration_s, total_duration, skip_split_if_under)
@@ -107,6 +110,7 @@ def _convert_many_bags(
     skip_split_if_under: int,
     parallel_workers: int,
 ) -> int:
+    """Convert many bags and return the total number of produced ROS 1 bag files."""
     bags = list(bag_paths)
     if not bags:
         return 0
@@ -224,6 +228,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.input:
         bag_paths = [Path(args.input)]
+        if not bag_paths[0].exists():
+            logger.error("Input bag not found: %s", bag_paths[0])
+            return 1
+        if bag_paths[0].suffix.lower() not in (".mcap", ".db3"):
+            logger.error("Input bag must be .mcap or .db3: %s", bag_paths[0])
+            return 1
     else:
         input_folder = Path(args.input_folder)
         if not input_folder.exists():

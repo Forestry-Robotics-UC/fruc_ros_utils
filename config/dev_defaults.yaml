@@ -1,71 +1,180 @@
-# ----------------- DEV CONFIG -----------------
+# ----------------- ADVANCED / DEVELOPER CONFIG -----------------
+# This file is intended for maintainers and advanced tuning.
+# Precedence at runtime: CLI args > user_config.yaml > this file.
 
 illumination:
-  # WB + CLAHE
+  # Enable gray-world white-balance pre-correction.
   white_balance: true
+  # CLAHE clip limit for local contrast enhancement.
   clahe_clip_limit: 2.8
+  # CLAHE tile size (N x N grid).
   clahe_tiles: 8
 
-  # Targets for gamma correction
+  # Target luma for underexposed scenes after correction.
   target_mean_under: 135.0
+  # Target luma for overexposed scenes after correction.
   target_mean_over: 140.0
 
-  mean_dark: 95.0        # was 85
-  mean_bright: 165.0     # was 170
-  pct_dark_th: 5.0       # was 25
-  pct_bright_th: 15.0    # was 20
-  dyn_range_min: 210.0   # was 60
+  # Mean luma threshold to classify frames as dark.
+  mean_dark: 95.0
+  # Mean luma threshold to classify frames as bright.
+  mean_bright: 165.0
+  # Percent dark pixels threshold for underexposure detection.
+  pct_dark_th: 5.0
+  # Percent bright pixels threshold for overexposure detection.
+  pct_bright_th: 15.0
+  # Minimum dynamic range required before low-contrast fallback.
+  dyn_range_min: 210.0
 
-  # Gamma clamps
+  # Minimum gamma allowed in dynamic correction.
   gamma_min: 0.6
+  # Maximum gamma allowed in dynamic correction.
   gamma_max: 1.8
 
-  # RAW path options
+  # Enable CLAHE directly on RAW/Bayer path.
   raw_enable_clahe: false
+  # Low percentile for RAW clipping.
   raw_p_low: 1.0
+  # High percentile for RAW clipping.
   raw_p_high: 98.0
+  # RAW gamma strength factor.
   raw_gamma_strength: 0.7
+  # RAW target mean for underexposure correction.
   raw_target_mean_under: 135.0
+  # RAW target mean for overexposure correction.
   raw_target_mean_over: 120.0
+  # Minimum gamma for RAW correction.
   raw_gamma_min: 0.75
+  # Maximum gamma for RAW correction.
   raw_gamma_max: 1.35
 
-  # Egomotion
+  # Angular threshold (rad) to trigger egomotion compensation.
   ego_theta_thresh_rad: 0.0025
 
-  # Deblur
+  # Enable blur correction in illumination workflow.
   deblur_enabled: true
-  deblur_mode: "multiframe"   # "single" | "multiframe" | "off"
-  deblur_algorithm: "lucy"    # "lucy" | "wiener"
+  # Deblur strategy: single frame, multiframe, or disabled.
+  deblur_mode: "multiframe"  # single | multiframe | off
+  # Deconvolution algorithm.
+  deblur_algorithm: "lucy"   # lucy | wiener
+  # Iteration count for iterative deconvolution.
   deblur_iters: 15
+  # Wiener regularization term.
   deblur_wiener_k: 0.01
+  # Maximum PSF length in pixels.
   deblur_psf_max_px: 25.0
+  # Minimum PSF length in pixels.
   deblur_psf_min_px: 2.0
 
-  # Multi-frame fusion
+  # Number of frames in multiframe fusion window.
   mf_window: 3
-  mf_align: "ego"            # "flow" | "ego"
+  # Alignment backend used in multiframe mode.
+  mf_align: "ego"            # flow | ego
+  # Sharpness metric used for fusion weighting.
   mf_sharpness_metric: "laplacian"
+  # Smoothing sigma for fusion weights.
   mf_sigma: 1.0
-  mf_min_sharpness: 30.0 # was 50
+  # Minimum sharpness accepted for fusion.
+  mf_min_sharpness: 30.0
 
 image_utils:
-  # Retinex / LIME
+  # Multi-scale Retinex scales.
   retinex_scales: [15, 80, 180]
+  # Guided filter radius for LIME pipeline.
   lime_guided_radius: 10
+  # Guided filter epsilon for LIME pipeline.
   lime_guided_eps: 0.001
-
-  # Motion kernel
+  # Motion kernel width used for synthetic PSF.
   motion_kernel_width: 0.8
 
 metrics:
-  # Sharpness
-  sharpness_metric: "laplacian"   # laplacian | sobel
+  # Primary sharpness metric for reporting.
+  sharpness_metric: "laplacian"  # laplacian | sobel
+  # Sobel kernel size (if sobel metric used).
   sobel_ksize: 3
+  # Laplacian kernel size.
   laplacian_ksize: 3
 
 bagutils:
-  # Runtime options
+  # Keep Bayer encoding when rewriting bags.
   preserve_bayer: true
+  # Exposure time in seconds for blur estimation.
   exposure_time: 0.01
+  # Force correction even when thresholds are not triggered.
   force: false
+
+mapir_ndvi:
+  # Input image topic for NDVI derivation.
+  image_topic: "/mapir/image_raw"
+  # Output topic for NDVI grayscale image.
+  output_topic: "/mapir/indices/ndvi"
+  # Output encoding for NDVI grayscale image.
+  output_encoding: "32FC1"  # 32FC1 | mono8
+  # Publish colorized NDVI topic as well.
+  publish_color: true
+  # Output topic for colorized NDVI.
+  color_topic: "/mapir/indices_color/ndvi"
+  # NDVI colormap selection.
+  colormap: "plant_health"  # plant_health | viridis | jet | gray | custom
+  # Custom colormap anchors when colormap=custom.
+  custom_colormap: ""
+  # Minimum NDVI value used for colorization scaling.
+  colorize_min: -1.0
+  # Maximum NDVI value used for colorization scaling.
+  colorize_max: 1.0
+  # MAPIR filter-set preset for default channel mapping.
+  filter_set: "OCN"
+  # Optional explicit NIR channel override.
+  nir_channel: -1
+  # Optional explicit visible channel override.
+  visible_channel: -1
+  # Optional visible-band label override.
+  visible_band_name: null
+  # Numerical stabilizer for NDVI denominator.
+  eps: 1.0e-6
+
+colorize_labels:
+  # Destination folder for colorized outputs.
+  out_path: "colorized_labels"
+  # Color map file path or inline YAML/JSON mapping.
+  color_map: null
+  # Enable interactive preview mode.
+  interactive: false
+  # Save all generated frames.
+  save_all: false
+  # Save both pure label and overlay images.
+  save_both: false
+  # Optional base image topic for overlays.
+  overlay_topic: null
+  # Overlay alpha blending factor.
+  overlay_alpha: 0.5
+  # Max timestamp gap for overlay matching.
+  overlay_max_dt: 0.05
+  # Frame stride for export.
+  stride: 1
+  # Maximum frames per bag (0 = all).
+  max_frames: 0
+  # Display resize factor (interactive mode).
+  resize: 1.0
+
+extract_metadata:
+  # Maximum messages per bag to export (0 = all).
+  max_msgs: 0
+
+navsat:
+  # Default CSV filename for navsat_export.
+  csv_name: "navsat.csv"
+  # Default KML filename for navsat_export.
+  kml_name: "navsat.kml"
+
+imu:
+  # IMU frame used for extrinsics lookup.
+  imu_frame: "imu_link"
+  # Default TF static topic name.
+  tf_static_topic: "/tf_static"
+  # Optional URDF file path for extrinsics extraction.
+  urdf_path: null
+
+extrinsics:
+  # Optional YAML file path with precomputed extrinsics.
+  extrinsics_yaml: null

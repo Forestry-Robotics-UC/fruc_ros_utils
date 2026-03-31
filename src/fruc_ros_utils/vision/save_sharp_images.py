@@ -22,9 +22,9 @@ import cv2
 from cv_bridge import CvBridge
 from tqdm import tqdm
 
-from utils.logging_utils import get_logger
-from vision.image_utils import demosaic_bayer, is_bayer
-from utils.metrics import sharpness_score, auto_threshold
+from fruc_ros_utils.utils.logging_utils import get_logger
+from fruc_ros_utils.utils.image_utils import demosaic_bayer, is_bayer
+from fruc_ros_utils.utils.metrics.vision import sharpness_score, auto_threshold
 
 logger = get_logger(__name__, level="INFO")
 
