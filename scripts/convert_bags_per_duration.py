@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 # -*- coding: utf-8 -*-
 """Compatibility wrapper for duration-based ROS 2 -> ROS 1 conversion.
 
@@ -15,6 +16,11 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, List
+
+try:
+    import argcomplete
+except Exception:
+    argcomplete = None
 
 
 logging.basicConfig(
@@ -158,7 +164,7 @@ def _convert_many_bags(
     return converted
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Convert ROS 2 bags to ROS 1 with duration-based chunking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -213,6 +219,8 @@ Examples:
         help="Glob pattern for folder discovery (default: '*', filtered to .mcap/.db3)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
+    if enable_shell_completion and argcomplete:
+        argcomplete.autocomplete(parser)
     return parser
 
 

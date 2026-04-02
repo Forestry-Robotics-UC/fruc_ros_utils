@@ -11,6 +11,8 @@
 #   duration calculation, topic manipulation, and integration with
 #   illumination and navsat tools.
 
+"""ROS 1 bag processing utilities and CLI entrypoints."""
+
 # ===== Standard Library =====
 import argparse
 import os
@@ -18,7 +20,6 @@ import sys
 import pathlib
 from collections import deque, defaultdict
 from typing import List, Dict, Optional
-from concurrent.futures import ProcessPoolExecutor
 
 # ===== Third-Party Libraries =====
 import numpy as np
@@ -29,7 +30,6 @@ import pandas as pd
 
 # ===== ROS =====
 import rosbag
-from sensor_msgs.msg import Image, NavSatFix
 from cv_bridge import CvBridge
 
 # ===== Custom Utilities =====
@@ -252,7 +252,7 @@ class RosbagUtils:
         results: Dict[str, float] = {}
         bag_files = _discover_bags(in_path)
 
-        for bag_path in _iter_bags(_discover_bags(in_path), desc="Calculating durations"):
+        for bag_path in _iter_bags(bag_files, desc="Calculating durations"):
             try:
                 with rosbag.Bag(bag_path, "r") as bag:
                     duration = bag.get_end_time() - bag.get_start_time()
@@ -455,7 +455,7 @@ class RosbagUtils:
             failures = 0
 
             with rosbag.Bag(out_bag_file, "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                for topic, msg, t in _iter_messages(
+                for _, msg, t in _iter_messages(
                     in_bag,
                     desc=f"NDVI {os.path.basename(bag_file)}",
                     topics=[image_topic],
@@ -828,7 +828,7 @@ class RosbagUtils:
             import random
             for algo in ["lucy", "wiener"]:
                 gains = []
-                for _, row in sample.iterrows():
+                for _, _row in sample.iterrows():
                     # NOTE: this is illustrative; proper impl would reload frames
                     # Here we just simulate by comparing stats
                     gains.append(random.uniform(0, 10) if algo == "lucy" else random.uniform(-2, 5))
@@ -860,7 +860,6 @@ class RosbagUtils:
     def auto_illumination_from_bag(self, cfg: dict) -> None:
         logger.debug("cfg=%s", cfg)
         in_path = cfg["in_path"]
-        out_path = pathlib.Path(cfg["out_path"])
         topics = cfg["topics"]
         save_bag = cfg.get("save_bag")  
         report = cfg.get("report")  
@@ -952,7 +951,7 @@ def print_results(results: Dict, header: Optional[str] = None) -> None:
 
 # --------------------------- CLI Parser -------------------------------------
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ROS bag utilities (refactored)")
     parser.add_argument(
         "--log-level", default="INFO",
@@ -1096,7 +1095,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Optional label for the visible band in logs")
     sp.add_argument("--eps", type=float, default=1.0e-6,
                     help="Small positive value to stabilize NDVI division")
-    if argcomplete:
+    if enable_shell_completion and argcomplete:
         argcomplete.autocomplete(parser)
     return parser
 
@@ -1197,7 +1196,10 @@ def main() -> None:
         )
         logger.info("Metric ranges: %s", results)
     elif args.cmd == "urdf_extrinsics":
-        T = load_extrinsics_from_urdf(cfg["urdf_path"], cfg["parent_link"], cfg["child_link"])
+        urdf_path = cfg.get("urdf") or cfg.get("urdf_path")
+        if not urdf_path:
+            parser.error("urdf_extrinsics requires --urdf")
+        T = load_extrinsics_from_urdf(urdf_path, cfg["parent_link"], cfg["child_link"])
         import numpy as np
         np.set_printoptions(precision=4, suppress=True)
         if cfg.get("rotation_only"):

@@ -11,6 +11,8 @@
 #   deblurring, batch processing for ROS bag files or image folders.
 #   Relies on utils.vision.image_utils for primitives and metrics.vision for stats.
 
+"""Illumination enhancement utilities for images and ROS bag streams."""
+
 from __future__ import annotations
 
 import logging

@@ -7,6 +7,8 @@
 # Description:
 #   Vision-related metrics: sharpness, exposure, and action decisions.
 
+"""Image-quality metrics and thresholding helpers."""
+
 import cv2
 import numpy as np
 from typing import Dict, List, Tuple

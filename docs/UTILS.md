@@ -1,11 +1,11 @@
-# fruc_ros_utils – Utils Overview
+# Utils Overview
 
 The `utils` package contains general-purpose utilities for logging, transforms, image processing, sensor conversions, and metrics.  
 These modules are building blocks used across the repository.
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/tf_utils.py`
+## `src/fruc_ros_utils/utils/tf_utils.py`
 **Purpose:**  
 Helpers for handling TF and extrinsics (camera ↔ IMU calibration, URDF transforms).
 
@@ -31,7 +31,7 @@ R_map = build_R_cam_imu_per_topic(
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/image_utils.py`
+## `src/fruc_ros_utils/utils/image_utils.py`
 **Purpose:**  
 Vision utilities for ROS ↔ OpenCV conversions, demosaicing, enhancement, and deblurring.
 
@@ -54,7 +54,7 @@ img_enhanced = vutils.apply_clahe_on_l(img_bgr, clip_limit=2.0, tiles=8)
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/logging_utils.py`
+## `src/fruc_ros_utils/utils/logging_utils.py`
 **Purpose:**  
 Lightweight logging utilities with colorized console output and optional file logging.
 
@@ -73,7 +73,7 @@ logger.info("This is a test message")
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/sensor_conversions.py`
+## `src/fruc_ros_utils/utils/sensor_conversions.py`
 **Purpose:**  
 Sensor frame convention conversions.
 
@@ -90,7 +90,7 @@ imu_enu = imu_ned_to_enu(imu_msg_ned)
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/metrics/vision.py`
+## `src/fruc_ros_utils/utils/metrics/vision.py`
 **Purpose:**  
 Vision-related **metrics** (sharpness, exposure, fusion weights).
 
@@ -103,7 +103,7 @@ Vision-related **metrics** (sharpness, exposure, fusion weights).
 
 ---
 
-## 📂 `src/fruc_ros_utils/utils/metrics/navsat.py`
+## `src/fruc_ros_utils/utils/metrics/navsat.py`
 **Purpose:**  
 GPS/Navigation Satellite covariance-based accuracy metrics.
 

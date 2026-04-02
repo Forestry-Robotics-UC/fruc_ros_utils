@@ -11,6 +11,8 @@
 #   Provides helpers to build R_cam_imu mappings, parse extrinsics from YAML/URDF,
 #   and compose transform chains from /tf_static or URDF joint trees.
 
+"""TF, URDF, and extrinsics utility helpers."""
+
 import os
 import yaml
 import numpy as np

@@ -6,8 +6,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+try:
+    import argcomplete
+except Exception:
+    argcomplete = None
 
-def build_parser() -> argparse.ArgumentParser:
+
+def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Repack PointCloud2 fields for iKalibr")
     parser.add_argument("--in", dest="in_bag", required=True, help="Input ROS1 .bag")
     parser.add_argument("--out", dest="out_bag", required=True, help="Output ROS1 .bag")
@@ -25,6 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Force ring field datatype (default=auto detect from input)",
     )
+    if enable_shell_completion and argcomplete:
+        argcomplete.autocomplete(parser)
     return parser
 
 

@@ -10,10 +10,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-pip \
         python3-dev \
         python3-rosbag \
+        python3-usb \
         ros-noetic-cv-bridge \
         ros-noetic-sensor-msgs \
+        ros-noetic-diagnostic-msgs \
         ros-noetic-image-geometry \
+        ros-noetic-image-transport \
+        ros-noetic-image-transport-plugins \
         ros-noetic-rospy \
+        ros-noetic-rostopic \
+        ros-noetic-tf2 \
+        ros-noetic-tf2-ros \
+        ros-noetic-tf2-sensor-msgs \
         python3-numpy \
         python3-opencv \
         python3-tqdm \

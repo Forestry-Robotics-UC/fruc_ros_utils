@@ -1,6 +1,6 @@
-# fruc_ros_utils
+# <img src="docs/pics/fruc_logo.png" width="140" alt="FRUC logo" hspace="2em"/>     FRUC ROS Utils
 
-`fruc_ros_utils` is a ROS bag and dataset tooling repo.
+`Fruc ROS Utils` is a ROS bag and dataset tooling repo.
 
 It is built around a few practical workflows:
 - inspect ROS 2 bags (`.mcap`, `.db3`)
@@ -20,8 +20,6 @@ This repo is not a single monolithic app. It is a toolbox. The fastest way to us
 | `Docker/ros` | Dockerized ROS 1 / ROS 2 utility environment |
 | `Docker/iKalibr` | iKalibr runtime, not the `ros2utils` compose stack |
 
-Temporal-alignment work is not bundled in this checkout. See
-`docs/TEMPORAL_ALIGNMENT.md` for the current status note.
 
 ## Install Modes
 
@@ -39,6 +37,7 @@ ros2utils --help
 ```
 
 The standalone helpers in `scripts/` are compatibility wrappers around packaged modules. They are meant for direct repo usage and bootstrap `src/` automatically when needed.
+For ROS 2 -> ROS 1 conversion, prefer `ros2utils convert_to_ros1` as the primary path.
 
 ## Start Here
 
@@ -123,7 +122,8 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 - [docs/DOCKER.md](docs/DOCKER.md): Docker usage, compose files, host vs container paths
 - [docs/IKALIBR_DOCKER.md](docs/IKALIBR_DOCKER.md): iKalibr setup and troubleshooting
 - [docs/COMMANDS.md](docs/COMMANDS.md): command reference with examples
-- [docs/TEMPORAL_ALIGNMENT.md](docs/TEMPORAL_ALIGNMENT.md): status note for the split-out temporal-alignment tooling
+- [UTILS.md](docs/UTILS.md): shared utilities overview
+
 
 ## Repository Layout
 
@@ -135,7 +135,7 @@ fruc_ros_utils/
 |- pyproject.toml       Python package metadata used by Docker and pip installs
 |- scripts/             helper scripts and batch wrappers
 |- setup.py             catkin-compatible Python package metadata
-|- src/fruc_ros_utils/bag/     ros1utils, ros2utils, bagutils, sync audit tools
+|- src/fruc_ros_utils/bag/     ros1utils, ros2utils, bagutils, bag-processing helpers
 |- src/fruc_ros_utils/system/  system monitoring and publishers
 |- src/fruc_ros_utils/utils/   shared helpers
 |- src/fruc_ros_utils/vision/  image and illumination utilities

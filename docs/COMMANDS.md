@@ -11,6 +11,24 @@ Use this document when you already know which tool you want and need the command
 | `ros1utils` | ROS 1 bag cleanup, metadata export, navsat, frame fixes |
 | `scripts/` | standalone helpers and batch wrappers |
 
+## CLI Autocomplete
+
+Autocomplete is available for `bagutils`, `ros1utils`, `ros2utils`, and argparse-based wrapper scripts.
+
+Enable it for the current shell:
+
+```bash
+source scripts/enable_autocomplete.sh
+```
+
+Manual registration:
+
+```bash
+eval "$(register-python-argcomplete bagutils)"
+eval "$(register-python-argcomplete ros1utils)"
+eval "$(register-python-argcomplete ros2utils)"
+```
+
 ## `bagutils`
 
 `bagutils` forwards to the ROS-specific CLIs.
@@ -283,51 +301,26 @@ Wrapper-only shortcuts:
 ros1utils export_camera_info <bagfile> <camera_info_topic> <out_yaml>
 ros1utils repack_pointcloud <in.bag> <out.bag> [topic]
 ros1utils repack_pointcloud_for_ikalibr <in.bag> <out.bag> [topic]
+ros1utils repack_pointcloud --in <in.bag> --out <out.bag> [--topic /ouster/points/corrected] [--overwrite] [--ring-dtype auto|uint8|uint16]
 ros1utils crop_pointcloud_fov --in <in.bag> --out <out.bag> [--topic /ouster/points] [--fov-deg 120] [--center-deg 0]
 ```
 
 These shortcuts call the packaged helper modules directly, so they do not depend on the current working directory.
 
-## Sync Audit Scripts
+## Sync Audit Status
 
-Single bag:
-
-```bash
-python3 src/fruc_ros_utils/bag/sync_audit_ros1.py /path/to/bag.bag \
-  [--imu /vectornav/IMU] \
-  [--topics /left/camera/image_raw /right/camera/image_raw /velodyne_packets] \
-  [--outlier_ms 20.0]
-```
-
-Dataset folder:
-
-```bash
-python3 src/fruc_ros_utils/bag/sync_audit_ros1_dataset.py /path/to/bag_folder \
-  [--imu /vectornav/IMU] \
-  [--topics /left/camera/image_raw /right/camera/image_raw /velodyne_packets] \
-  [--outdir /path/to/report_dir] \
-  [--outlier_ms 20.0] \
-  [--velodyne_time header|first|last|mid|bag] \
-  [--timeline_small_multiples] \
-  [--max_timelines 24]
-```
+Sync-audit utilities are not bundled in this checkout.
+Use the split-out temporal-alignment repository noted in `docs/TEMPORAL_ALIGNMENT.md`.
 
 ## Standalone Scripts
 
-Extract metadata from a ROS 2 bag:
+Extract metadata from a ROS 1 bag topic:
 
 ```bash
-python3 scripts/extract_metadata.py -i /path/to/bag.mcap -o /path/to/metadata.txt [-t /ouster/metadata]
-```
-
-Inspect point cloud fields:
-
-```bash
-python3 scripts/inspect_pointcloud_fields.py \
-  --bag /path/to/bag.bag \
-  --topic /ouster/points/corrected \
-  [--sample-msgs 5] \
-  [--print-points 3]
+ros1utils extract_metadata \
+  --in /path/to/input.bag \
+  --out /path/to/metadata.jsonl \
+  [--topic /ouster/metadata]
 ```
 
 Repack point cloud for iKalibr:
@@ -388,25 +381,31 @@ ros1utils mapir_ndvi \
 Run the same offline conversion through the FRUC ROS Docker stack:
 
 ```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils
-BAGS_PATH=/path/to/bags_root \
-MAPIR_INPUT_BAG=/bags/input.bag \
-MAPIR_OUTPUT_BAG=/bags/output_ndvi.bag \
-./scripts/run_mapir_ndvi_record.sh
+cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
+BAGS_PATH=/path/to/bags_root docker compose run --rm noetic \
+  ros1utils mapir_ndvi \
+    --in /bags/input.bag \
+    --out /bags/output_ndvi.bag \
+    --image-topic /mapir/image_raw \
+    --output-topic /mapir/indices/ndvi \
+    --publish-color \
+    --color-topic /mapir/indices_color/ndvi \
+    --colormap plant_health \
+    --filter-set OCN
 ```
 
 Useful overrides:
 
 ```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils
-BAGS_PATH=/path/to/bags_root \
-MAPIR_INPUT_BAG=/bags/input.bag \
-MAPIR_OUTPUT_BAG=/bags/mapir_ndvi_only.bag \
-MAPIR_NDVI_TOPIC=/mapir/indices/ndvi \
-MAPIR_IMAGE_TOPIC=/mapir/image_raw \
-MAPIR_FILTER_SET=OCN \
-MAPIR_PUBLISH_COLOR=true \
-MAPIR_NDVI_COLOR_TOPIC=/mapir/indices_color/ndvi \
-MAPIR_NDVI_COLORMAP=plant_health \
-./scripts/run_mapir_ndvi_record.sh
+cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
+BAGS_PATH=/path/to/bags_root docker compose run --rm noetic \
+  ros1utils mapir_ndvi \
+    --in /bags/input.bag \
+    --out /bags/mapir_ndvi_only.bag \
+    --image-topic /mapir/image_raw \
+    --output-topic /mapir/indices/ndvi \
+    --filter-set OCN \
+    --publish-color \
+    --color-topic /mapir/indices_color/ndvi \
+    --colormap plant_health
 ```

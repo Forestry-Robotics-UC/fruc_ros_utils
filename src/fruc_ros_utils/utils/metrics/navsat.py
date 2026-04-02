@@ -10,6 +10,8 @@
 #   exporters. Provides covariance-based accuracy estimates
 #   and ellipse parameters.
 
+"""NavSat covariance and quality metric helpers."""
+
 import numpy as np
 from typing import List, Dict
 

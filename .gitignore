@@ -10,3 +10,4 @@ src/fruc_ros_utils.egg-info/
 .vscode/
 Docker/*/.env
 Docker/*/output/
+AGENTS.md

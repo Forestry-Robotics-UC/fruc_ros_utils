@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
+"""Catkin wrapper for the unified bagutils dispatcher CLI."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+def _bootstrap() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    src_root = repo_root / "src"
+    if src_root.exists():
+        sys.path.insert(0, str(src_root))
+
+
+def main() -> int:
+    _bootstrap()
+    from fruc_ros_utils.bag.bagbridge import main as bagbridge_main
+
+    return int(bagbridge_main())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

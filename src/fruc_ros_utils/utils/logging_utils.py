@@ -9,6 +9,8 @@
 # Description:
 #   Lightweight logging utilities with sane defaults for CLI and ROS bag scripts.
 
+"""Logging helpers with optional colorized console output."""
+
 import logging
 import os
 import sys

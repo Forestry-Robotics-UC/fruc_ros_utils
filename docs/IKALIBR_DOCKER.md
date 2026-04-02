@@ -180,11 +180,10 @@ IKALIBR_REBUILD_CUDA=1 IKALIBR_REBUILD_SFM_CUDA=1 COLMAP_CUDA_ARCHITECTURES=all-
 4. Run solver command manually inside shell
 5. Inspect `/workspace/output`
 
-## 8. Known Duplication Note
+## 8. Camera Calibration
 
-Two calibration files are intentionally duplicated for compatibility with current tool paths:
+Camera intrinsics are defined in a single file:
 
 - `Docker/iKalibr/config/cam_calib.yaml`
-- `Docker/iKalibr/config/tool/cam_calib.yaml`
 
-Keep both synchronized when updating calibration defaults.
+Use this path when updating camera calibration defaults.

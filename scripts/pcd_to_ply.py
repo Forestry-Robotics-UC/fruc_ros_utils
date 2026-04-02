@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 """Convert a binary PCD point cloud to binary little-endian PLY.
 
 This helper is intentionally minimal and optimized for the iKalibr outputs in
@@ -21,6 +22,11 @@ from pathlib import Path
 from typing import List
 
 import numpy as np
+
+try:
+    import argcomplete
+except Exception:
+    argcomplete = None
 
 
 @dataclass
@@ -184,7 +190,7 @@ def convert_pcd_to_ply(src: Path, dst: Path, chunk_points: int = 1_000_000) -> N
             remaining -= n
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Convert a binary PCD file to binary little-endian PLY.")
     parser.add_argument("src", type=Path, help="Input .pcd path")
     parser.add_argument("dst", type=Path, help="Output .ply path")
@@ -194,7 +200,9 @@ def main() -> int:
         default=1_000_000,
         help="Number of points to process per chunk (default: 1000000)",
     )
-    args = parser.parse_args()
+    if argcomplete:
+        argcomplete.autocomplete(parser)
+    args = parser.parse_args(argv)
 
     convert_pcd_to_ply(args.src, args.dst, chunk_points=args.chunk_points)
     print(f"Converted {args.src} -> {args.dst}")

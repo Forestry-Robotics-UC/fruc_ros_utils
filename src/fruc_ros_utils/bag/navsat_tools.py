@@ -10,6 +10,8 @@
 #   Navigation satellite utilities: coordinate conversions and
 #   CSV/KML exporters for NavSatFix-like records.
 
+"""Navigation-satellite coordinate conversion and export helpers."""
+
 import pathlib
 import logging
 from typing import List, Dict

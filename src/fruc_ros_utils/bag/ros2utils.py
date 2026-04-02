@@ -12,8 +12,9 @@
 #   Provides: topic listing, duration computation, generic JSON extraction.
 #
 
+"""ROS 2 bag inspection and ROS 2 -> ROS 1 conversion utilities."""
+
 import argparse
-import copy
 import sys
 import json
 import traceback
@@ -29,6 +30,11 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import yaml
+
+try:
+    import argcomplete
+except Exception:
+    argcomplete = None
 
 # ===== ROS 2 =====
 try:
@@ -1053,7 +1059,7 @@ class Ros2BagUtils:
             return [src]
         members: List[Path] = []
 
-        for index, file_entry in enumerate(file_entries):
+        for file_entry in file_entries:
             rel_name = str(file_entry.get("path") or "")
             if not rel_name:
                 continue
@@ -1294,7 +1300,7 @@ class Ros2BagUtils:
             prefix=f".ros2_existing_split_{src.stem}_",
             dir=str(out_dir),
             ignore_cleanup_errors=True,
-        ) as temp_dir:
+        ):
             chunk_sources = self._existing_split_member_sources(str(src))
             if len(chunk_sources) <= 1:
                 return [
@@ -1392,7 +1398,7 @@ class Ros2BagUtils:
 
         ring_arrays = []
         while reader.has_next():
-            topic_name, data, ts = reader.read_next()
+            topic_name, data, _ = reader.read_next()
             if topic_name != topic:
                 continue
             try:
@@ -1407,7 +1413,7 @@ class Ros2BagUtils:
                         )
                         ring_arrays.append(ring_data.copy())
                         break
-            except Exception as e:
+            except Exception:
                 continue
 
         if not ring_arrays:
@@ -1863,7 +1869,6 @@ class Ros2BagUtils:
             # rosbag not available in the jazzy container; skip silently
             return
 
-        import random
         SAMPLE = 5  # messages per topic to check
 
         try:
@@ -3452,7 +3457,7 @@ class Ros2BagUtils:
 # --------------------------------------------------------------------------- #
 #                               CLI PARSER                                    #
 # --------------------------------------------------------------------------- #
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ROS 2 bag utilities")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     parser.add_argument("--log-file", default=None, help="Optional log file")
@@ -3551,6 +3556,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--split-size", default=None, dest="split_size",
                     help="Split each source bag before conversion when it exceeds this size. "
                          "Accepts bytes or values like 500M, 2G.")
+    if enable_shell_completion and argcomplete:
+        argcomplete.autocomplete(parser)
     return parser
 
 # --------------------------------------------------------------------------- #

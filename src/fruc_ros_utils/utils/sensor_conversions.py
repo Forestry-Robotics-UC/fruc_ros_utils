@@ -9,6 +9,8 @@
 # Description:
 #   Sensor convention conversions (e.g., IMU NED→ENU).
 
+"""Sensor-frame conversion helpers for ROS messages."""
+
 from sensor_msgs.msg import Imu
 
 

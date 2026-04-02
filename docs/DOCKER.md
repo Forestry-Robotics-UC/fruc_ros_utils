@@ -10,7 +10,6 @@ This repo has multiple Docker compose projects:
 | --- | --- | --- |
 | `Docker/ros/docker-compose.yml` | Run `ros2utils` and `ros1utils` | `jazzy`, `noetic` |
 | `Docker/iKalibr/docker-compose.yml` | Run iKalibr tools | `solver`, `solver-cuda`, `imu-calib`, `shell` |
-| `Docker/packet_converter/docker-compose.yml` | Packet conversion workflow | packet converter services only |
 
 If you need `ros2utils convert_to_ros1`, use `Docker/ros/docker-compose.yml`.
 
@@ -185,7 +184,6 @@ Inside `noetic`:
 
 ```bash
 ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
-python3 /workspace/fruc_ros_utils/src/fruc_ros_utils/bag/sync_audit_ros1.py /bags/session/run_01_ros1.bag
 ```
 
 ## Common Failure Cases

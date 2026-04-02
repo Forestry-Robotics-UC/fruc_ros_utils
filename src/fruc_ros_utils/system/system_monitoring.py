@@ -1,8 +1,12 @@
+"""Publish host telemetry and ROS topic rates to diagnostics."""
+
 import rospy
 from rostopic import ROSTopicHz
 from std_msgs.msg import Header
 from diagnostic_msgs.msg import KeyValue, DiagnosticStatus, DiagnosticArray
 import numpy as np
+
+
 class MonitorSystem():
 
     def __init__(self):

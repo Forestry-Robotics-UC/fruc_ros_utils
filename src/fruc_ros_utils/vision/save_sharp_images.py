@@ -10,6 +10,8 @@
 #   Extract sharp images from ROS bag files. Uses sharpness metrics to filter
 #   out blurred frames and saves a random balanced set across bags.
 
+"""CLI helper to sample sharp image frames from ROS bag datasets."""
+
 import os
 import pathlib
 import random

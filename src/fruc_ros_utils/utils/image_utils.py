@@ -7,6 +7,7 @@
 # Description:
 #   Generic vision utilities for ROS <-> OpenCV conversion and image enhancement.
 
+"""Shared image-processing helpers for ROS and OpenCV workflows."""
 
 import cv2
 import numpy as np

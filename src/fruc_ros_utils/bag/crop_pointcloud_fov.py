@@ -7,8 +7,13 @@ import argparse
 import math
 from pathlib import Path
 
+try:
+    import argcomplete
+except Exception:
+    argcomplete = None
 
-def build_parser() -> argparse.ArgumentParser:
+
+def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Crop a ROS1 PointCloud2 bag topic by horizontal FOV"
     )
@@ -28,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Center azimuth in degrees",
     )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite output if it exists")
+    if enable_shell_completion and argcomplete:
+        argcomplete.autocomplete(parser)
     return parser
 
 
