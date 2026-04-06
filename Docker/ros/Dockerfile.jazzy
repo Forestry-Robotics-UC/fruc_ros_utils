@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-realsense2-* \
         python3-numpy \
         python3-opencv \
+        python3-av \
         python3-tqdm \
         python3-yaml \
         python3-pandas \

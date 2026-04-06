@@ -196,6 +196,10 @@ _OPTIONAL_DROPPED_ROS2_TYPES = {
     "realsense2_camera_msgs/msg/Extrinsics",
     "tf2_msgs/msg/TFMessage",
 }
+_FFMPEG_PACKET_ROS2_TYPES = {
+    "ffmpeg_image_transport_msgs/msg/FFMPEGPacket",
+    "ffmpeg_image_transport_msgs/FFMPEGPacket",
+}
 _STANDARD_ROS_TYPE_PREFIXES = (
     "sensor_msgs/",
     "std_msgs/",
@@ -213,18 +217,16 @@ _STANDARD_ROS_TYPE_PREFIXES = (
 )
 
 
-def _normalize_ros1_msg_type(msg_type: str) -> str:
-    """Normalize ROS 2 msg type notation to ROS 1 notation for bag writes."""
-    if not isinstance(msg_type, str):
-        return msg_type
-    normalized = msg_type.strip().replace(_ROS2_MSG_TYPE_SEPARATOR, "/")
-    return normalized.replace("::", "/")
-
-
 def _is_standard_ros_msg_type(msg_type: Optional[str]) -> bool:
     if not isinstance(msg_type, str):
         return False
     return any(msg_type.startswith(prefix) for prefix in _STANDARD_ROS_TYPE_PREFIXES)
+
+
+def _is_ffmpeg_packet_msg_type(msg_type: Optional[str]) -> bool:
+    if not isinstance(msg_type, str):
+        return False
+    return msg_type.strip().replace(_ROS2_MSG_TYPE_SEPARATOR, "/") in _FFMPEG_PACKET_ROS2_TYPES
 
 
 def _safe_rosbag2_metadata_scalar(value, default: str = "") -> str:
@@ -373,6 +375,26 @@ class Ros2BagUtils:
                 continue
 
         raise RuntimeError(f"Failed to open ROS2 reader for {bag_path}: {last_error}")
+
+    @staticmethod
+    def _ensure_ros1_tf2_typestore(dst_store) -> None:
+        """Register tf2_msgs/TFMessage in ROS1 typestores that do not bundle it."""
+        if dst_store is None:
+            return
+        store_types = getattr(dst_store, "types", None)
+        if isinstance(store_types, dict) and "tf2_msgs/msg/TFMessage" in store_types:
+            return
+        try:
+            from rosbags.typesys import get_types_from_msg
+
+            tf_msgdef = "geometry_msgs/TransformStamped[] transforms\n"
+            dst_store.register(get_types_from_msg(tf_msgdef, "tf2_msgs/msg/TFMessage"))
+            logger.debug("Registered missing ROS1 typestore definition for tf2_msgs/msg/TFMessage")
+        except Exception:
+            logger.debug(
+                "Failed to register tf2_msgs/msg/TFMessage in ROS1 typestore",
+                exc_info=True,
+            )
 
     @staticmethod
     def _cleanup_partial_output(dst_path: Union[str, Path], context: str = "") -> None:
@@ -711,6 +733,7 @@ class Ros2BagUtils:
         split_duration: Optional[str] = None,
         split_size: Optional[str] = None,
         decode_ouster: bool = False,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -736,6 +759,7 @@ class Ros2BagUtils:
                 split_duration_s=split_duration_s,
                 split_size_bytes=split_size_bytes,
                 decode_ouster=decode_ouster,
+                decode_ffmpeg=decode_ffmpeg,
                 output_mode=output_mode,
                 points_topic=points_topic,
                 depth_topic=depth_topic,
@@ -765,6 +789,7 @@ class Ros2BagUtils:
                 lidar_topic=lidar_topic,
                 overwrite=overwrite,
                 decode_ouster=decode_ouster,
+                decode_ffmpeg=decode_ffmpeg,
                 output_mode=output_mode,
                 points_topic=points_topic,
                 depth_topic=depth_topic,
@@ -785,6 +810,7 @@ class Ros2BagUtils:
             lidar_topic=lidar_topic,
             overwrite=overwrite,
             decode_ouster=decode_ouster,
+            decode_ffmpeg=decode_ffmpeg,
             output_mode=output_mode,
             points_topic=points_topic,
             depth_topic=depth_topic,
@@ -807,6 +833,7 @@ class Ros2BagUtils:
         lidar_topic: Optional[str] = None,
         overwrite: bool = False,
         decode_ouster: bool = False,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -846,6 +873,8 @@ class Ros2BagUtils:
         preserve_lidar_fields : Restore custom LiDAR fields (ring, reflectivity) from MCAP.
         lidar_topic         : LiDAR topic to restore fields for (default: /ouster/points/corrected).
         overwrite           : Remove existing output path before writing if true.
+        decode_ouster       : Decode Ouster packet topics to standard sensor topics during conversion.
+        decode_ffmpeg       : Decode ffmpeg_image_transport packet topics to sensor_msgs/Image during conversion.
         """
         src = Path(bag_path).resolve()
         if not src.exists():
@@ -857,7 +886,7 @@ class Ros2BagUtils:
         dst = Path(out_path).resolve()
         self._ensure_output_available(str(dst), overwrite=overwrite)
         logger.debug(
-            "convert_to_ros1 request: src=%s dst=%s include=%s exclude=%s remap=%s validate=%s preserve_lidar_fields=%s lidar_topic=%s overwrite=%s decode_ouster=%s output_mode=%s keep_raw_ouster=%s metadata_file=%s",
+            "convert_to_ros1 request: src=%s dst=%s include=%s exclude=%s remap=%s validate=%s preserve_lidar_fields=%s lidar_topic=%s overwrite=%s decode_ouster=%s decode_ffmpeg=%s output_mode=%s keep_raw_ouster=%s metadata_file=%s",
             _debug_path_state(src),
             _debug_path_state(dst),
             include_topics,
@@ -868,14 +897,15 @@ class Ros2BagUtils:
             lidar_topic,
             overwrite,
             decode_ouster,
+            decode_ffmpeg,
             output_mode,
             keep_raw_ouster,
             metadata_file,
         )
         self._debug_log_ros2_bag_summary(src, "convert_to_ros1 source summary")
 
-        if decode_ouster:
-            if preserve_lidar_fields:
+        if decode_ouster or decode_ffmpeg:
+            if decode_ouster and preserve_lidar_fields:
                 warn("Ignoring --preserve-lidar-fields because --decode-ouster writes derived ROS1 topics directly.")
             converted_path = self._convert_single_to_ros1_with_ouster_decode(
                 bag_path=str(src),
@@ -887,6 +917,8 @@ class Ros2BagUtils:
                 dst_typestore=dst_typestore,
                 validate=validate,
                 overwrite=overwrite,
+                decode_ouster=decode_ouster,
+                decode_ffmpeg=decode_ffmpeg,
                 output_mode=output_mode,
                 points_topic=points_topic,
                 depth_topic=depth_topic,
@@ -1169,6 +1201,7 @@ class Ros2BagUtils:
         split_duration_s: Optional[int] = None,
         split_size_bytes: Optional[int] = None,
         decode_ouster: bool = False,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -1202,6 +1235,7 @@ class Ros2BagUtils:
                     lidar_topic=lidar_topic,
                     overwrite=overwrite,
                     decode_ouster=decode_ouster,
+                    decode_ffmpeg=decode_ffmpeg,
                     output_mode=output_mode,
                     points_topic=points_topic,
                     depth_topic=depth_topic,
@@ -1258,6 +1292,7 @@ class Ros2BagUtils:
                             lidar_topic=lidar_topic,
                             overwrite=overwrite,
                             decode_ouster=decode_ouster,
+                            decode_ffmpeg=decode_ffmpeg,
                             output_mode=output_mode,
                             points_topic=points_topic,
                             depth_topic=depth_topic,
@@ -1287,6 +1322,7 @@ class Ros2BagUtils:
         lidar_topic: Optional[str] = None,
         overwrite: bool = False,
         decode_ouster: bool = False,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -1317,6 +1353,7 @@ class Ros2BagUtils:
                         lidar_topic=lidar_topic,
                         overwrite=overwrite,
                         decode_ouster=decode_ouster,
+                        decode_ffmpeg=decode_ffmpeg,
                         output_mode=output_mode,
                         points_topic=points_topic,
                         depth_topic=depth_topic,
@@ -1357,6 +1394,7 @@ class Ros2BagUtils:
                             lidar_topic=lidar_topic,
                             overwrite=overwrite,
                             decode_ouster=decode_ouster,
+                            decode_ffmpeg=decode_ffmpeg,
                             output_mode=output_mode,
                             points_topic=points_topic,
                             depth_topic=depth_topic,
@@ -1478,6 +1516,8 @@ class Ros2BagUtils:
         dst_typestore: str = "ros1_noetic",
         validate: bool = True,
         overwrite: bool = False,
+        decode_ouster: bool = True,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -1490,10 +1530,8 @@ class Ros2BagUtils:
             from rosbags.serde import cdr_to_ros1
         except ImportError as exc:
             raise RuntimeError(
-                f"rosbags rosbag1 writer/serde support is required for direct Ouster decode conversion: {exc}"
+                f"rosbags rosbag1 writer/serde support is required for direct decode conversion: {exc}"
             ) from exc
-
-        from fruc_ros_utils.bag.ouster_decode import OusterPacketDecoder
 
         src = Path(bag_path).resolve()
         dst = Path(out_path).resolve()
@@ -1501,20 +1539,53 @@ class Ros2BagUtils:
 
         src_store = self._resolve_rosbags_typestore(src_typestore)
         dst_store = self._resolve_rosbags_typestore(dst_typestore)
-
-        decoder = OusterPacketDecoder(
-            points_topic=points_topic,
-            depth_topic=depth_topic,
-            imu_topic=imu_topic,
-            output_mode=output_mode,
-            metadata_file=metadata_file,
-            input_bag_path=str(src),
-        )
-        decoder.initialize_metadata_fallback_if_available()
+        self._ensure_ros1_tf2_typestore(dst_store)
 
         source_topic_types = self._source_topic_types(str(src))
-        raw_ouster_topics = set(decoder.raw_topics())
-        derived_topic_types = decoder.output_topic_types()
+        raw_ouster_topics: set = set()
+        raw_ffmpeg_topics: set = set()
+        derived_topic_types: Dict[str, str] = {}
+        ffmpeg_topic_map: Dict[str, str] = {}
+
+        ouster_decoder = None
+        if decode_ouster:
+            from fruc_ros_utils.bag.ouster_decode import OusterPacketDecoder
+
+            ouster_decoder = OusterPacketDecoder(
+                points_topic=points_topic,
+                depth_topic=depth_topic,
+                imu_topic=imu_topic,
+                output_mode=output_mode,
+                metadata_file=metadata_file,
+                input_bag_path=str(src),
+            )
+            ouster_decoder.initialize_metadata_fallback_if_available()
+            raw_ouster_topics = set(ouster_decoder.raw_topics())
+            derived_topic_types.update(ouster_decoder.output_topic_types())
+
+        ffmpeg_decoder = None
+        if decode_ffmpeg:
+            ffmpeg_topic_map = self._discover_ffmpeg_decode_topic_map(
+                source_topic_types,
+                include_topics=include_topics,
+                exclude_topics=exclude_topics,
+            )
+            if ffmpeg_topic_map:
+                from fruc_ros_utils.bag.ffmpeg_decode import FFMPEGPacketDecoder
+
+                ffmpeg_decoder = FFMPEGPacketDecoder(topic_map=ffmpeg_topic_map)
+                raw_ffmpeg_topics = set(ffmpeg_decoder.raw_topics())
+                derived_topic_types.update(ffmpeg_decoder.output_topic_types())
+                log(
+                    "FFmpeg decode enabled for %d topic(s): %s",
+                    len(ffmpeg_topic_map),
+                    ", ".join(
+                        f"{src_topic}->{dst_topic}"
+                        for src_topic, dst_topic in sorted(ffmpeg_topic_map.items())
+                    ),
+                )
+            else:
+                warn("FFmpeg decode requested but no ffmpeg packet topics were selected.")
 
         auto_excluded_topics = self._auto_exclude_unsupported_topics(
             str(src),
@@ -1528,6 +1599,8 @@ class Ros2BagUtils:
             )
 
         base_exclude_topics = list(_merge_topic_lists(exclude_topics, auto_excluded_topics) or [])
+        if raw_ffmpeg_topics:
+            base_exclude_topics = list(_merge_topic_lists(base_exclude_topics, list(raw_ffmpeg_topics)) or [])
         if not keep_raw_ouster:
             base_exclude_topics = list(_merge_topic_lists(base_exclude_topics, list(raw_ouster_topics)) or [])
 
@@ -1537,25 +1610,48 @@ class Ros2BagUtils:
             exclude_topics=base_exclude_topics,
         )
 
-        selected_derived_topics = {
-            topic_name: msg_type
-            for topic_name, msg_type in derived_topic_types.items()
-            if self._topic_selected(topic_name, include_topics=include_topics, exclude_topics=exclude_topics)
-        }
+        include_set = set(include_topics or [])
+        exclude_set = set(exclude_topics or [])
+        ffmpeg_output_to_input = {dst_topic: src_topic for src_topic, dst_topic in ffmpeg_topic_map.items()}
+        selected_derived_topics: Dict[str, str] = {}
+        for topic_name, msg_type in derived_topic_types.items():
+            selected = self._topic_selected(
+                topic_name,
+                include_topics=include_topics,
+                exclude_topics=exclude_topics,
+            )
+            if (
+                not selected
+                and include_set
+                and topic_name in ffmpeg_output_to_input
+                and ffmpeg_output_to_input[topic_name] in include_set
+                and ffmpeg_output_to_input[topic_name] not in exclude_set
+            ):
+                selected = True
+            if selected:
+                selected_derived_topics[topic_name] = msg_type
 
         if not selected_copy_topics and not selected_derived_topics:
             raise RuntimeError(
-                "No ROS1 output topics selected after applying include/exclude filters and Ouster decode settings."
+                "No ROS1 output topics selected after applying include/exclude filters and decode settings."
             )
 
-        self._cleanup_partial_output(dst, context="direct Ouster decode ROS1 writer preflight")
+        self._cleanup_partial_output(dst, context="direct decode ROS1 writer preflight")
         logger.debug(
-            "Starting direct ROS2->ROS1 conversion with Ouster decode: src=%s dst=%s copy_topics=%s derived_topics=%s",
+            "Starting direct ROS2->ROS1 conversion with decoders: src=%s dst=%s decode_ouster=%s decode_ffmpeg=%s copy_topics=%s derived_topics=%s",
             _debug_path_state(src),
             _debug_path_state(dst),
+            decode_ouster,
+            decode_ffmpeg,
             selected_copy_topics,
             selected_derived_topics,
         )
+
+        decoders = []
+        if ouster_decoder is not None:
+            decoders.append(("Ouster", ouster_decoder))
+        if ffmpeg_decoder is not None:
+            decoders.append(("FFmpeg", ffmpeg_decoder))
 
         reader = self._open_reader(str(src))
         close_reader = getattr(reader, "close", None)
@@ -1575,16 +1671,18 @@ class Ros2BagUtils:
             with Ros1Writer(dst) as writer:
                 for topic_name in selected_copy_topics:
                     msg_type = source_topic_types[topic_name]
+                    out_topic_name = remap.get(topic_name, topic_name) if remap else topic_name
                     copy_connections[topic_name] = writer.add_connection(
-                        topic_name,
+                        out_topic_name,
                         msg_type,
                         typestore=dst_store,
                         latching=1 if topic_name.endswith("/tf_static") else None,
                     )
 
                 for topic_name, msg_type in selected_derived_topics.items():
+                    out_topic_name = remap.get(topic_name, topic_name) if remap else topic_name
                     derived_connections[topic_name] = writer.add_connection(
-                        topic_name,
+                        out_topic_name,
                         msg_type,
                         typestore=dst_store,
                         latching=1 if topic_name.endswith("/tf_static") else None,
@@ -1603,59 +1701,71 @@ class Ros2BagUtils:
                         writer.write(connection, timestamp, ros1_raw)
                         msg_count += 1
 
-                    try:
-                        derived_outputs = decoder.process_message(topic_name, rawdata, timestamp)
-                    except Exception as exc:
-                        warn(
-                            "Non-fatal Ouster decode error in %s at %d on topic %s: %s",
-                            src.name,
-                            timestamp,
-                            topic_name,
-                            exc,
-                        )
-                        derived_outputs = []
+                    for decoder_name, decoder in decoders:
+                        try:
+                            derived_outputs = decoder.process_message(topic_name, rawdata, timestamp)
+                        except Exception as exc:
+                            warn(
+                                "Non-fatal %s decode error in %s at %d on topic %s: %s",
+                                decoder_name,
+                                src.name,
+                                timestamp,
+                                topic_name,
+                                exc,
+                            )
+                            derived_outputs = []
 
-                    for derived_topic, derived_type, derived_msg, derived_ts in derived_outputs:
-                        derived_connection = derived_connections.get(derived_topic)
-                        if derived_connection is None:
-                            continue
-                        derived_cdr = rclpy.serialization.serialize_message(derived_msg)
-                        derived_ros1 = cdr_to_ros1(derived_cdr, derived_type, typestore=src_store)
-                        writer.write(derived_connection, int(derived_ts), derived_ros1)
-                        msg_count += 1
+                        for derived_topic, derived_type, derived_msg, derived_ts in derived_outputs:
+                            derived_connection = derived_connections.get(derived_topic)
+                            if derived_connection is None:
+                                continue
+                            derived_cdr = rclpy.serialization.serialize_message(derived_msg)
+                            derived_ros1 = cdr_to_ros1(derived_cdr, derived_type, typestore=src_store)
+                            writer.write(derived_connection, int(derived_ts), derived_ros1)
+                            msg_count += 1
         finally:
             if pbar is not None:
                 pbar.close()
             if callable(close_reader):
                 close_reader()
 
-        decode_stats = decoder.get_stats()
-        log(
-            "Ouster decode summary for %s: metadata=%d fallback=%d lidar_packets=%d scans=%d depth=%d imu_packets=%d imu_msgs=%d skipped=%d decode_errors=%d",
-            src.name,
-            decode_stats.get("metadata_messages", 0),
-            decode_stats.get("metadata_fallback_used", 0),
-            decode_stats.get("lidar_packets_seen", 0),
-            decode_stats.get("scans_emitted", 0),
-            decode_stats.get("depth_images_emitted", 0),
-            decode_stats.get("imu_packets_seen", 0),
-            decode_stats.get("imu_messages_emitted", 0),
-            decode_stats.get("messages_skipped", 0),
-            decode_stats.get("decode_errors", 0),
-        )
+        if ouster_decoder is not None:
+            decode_stats = ouster_decoder.get_stats()
+            log(
+                "Ouster decode summary for %s: metadata=%d fallback=%d lidar_packets=%d scans=%d depth=%d imu_packets=%d imu_msgs=%d skipped=%d decode_errors=%d",
+                src.name,
+                decode_stats.get("metadata_messages", 0),
+                decode_stats.get("metadata_fallback_used", 0),
+                decode_stats.get("lidar_packets_seen", 0),
+                decode_stats.get("scans_emitted", 0),
+                decode_stats.get("depth_images_emitted", 0),
+                decode_stats.get("imu_packets_seen", 0),
+                decode_stats.get("imu_messages_emitted", 0),
+                decode_stats.get("messages_skipped", 0),
+                decode_stats.get("decode_errors", 0),
+            )
+        if ffmpeg_decoder is not None:
+            ffmpeg_stats = ffmpeg_decoder.get_stats()
+            log(
+                "FFmpeg decode summary for %s: packets=%d frames=%d no_frame=%d decode_errors=%d",
+                src.name,
+                ffmpeg_stats.get("packets_seen", 0),
+                ffmpeg_stats.get("frames_emitted", 0),
+                ffmpeg_stats.get("packets_without_frames", 0),
+                ffmpeg_stats.get("decode_errors", 0),
+            )
 
         if msg_count == 0:
-            self._cleanup_partial_output(dst, context="direct Ouster decode wrote zero messages")
-            raise RuntimeError("Direct ROS2->ROS1 Ouster decode conversion wrote zero messages.")
+            self._cleanup_partial_output(dst, context="direct decode wrote zero messages")
+            raise RuntimeError("Direct ROS2->ROS1 decode conversion wrote zero messages.")
 
         final_dst = dst
-        if remap:
-            final_dst = self._remap_topics(dst, remap)
 
         if validate and final_dst.exists():
             validation_excludes = list(base_exclude_topics)
             validation_excludes = list(_merge_topic_lists(validation_excludes, list(raw_ouster_topics)) or [])
-            if output_mode in ("depth", "both"):
+            validation_excludes = list(_merge_topic_lists(validation_excludes, list(raw_ffmpeg_topics)) or [])
+            if decode_ouster and output_mode in ("depth", "both"):
                 validation_excludes = list(_merge_topic_lists(validation_excludes, [depth_topic]) or [])
             self._validate_timestamps(str(final_dst))
             self._validate_message_counts(
@@ -2072,6 +2182,58 @@ class Ros2BagUtils:
         )
         return selected
 
+    @staticmethod
+    def _ffmpeg_decoded_output_topic(
+        input_topic: str,
+        existing_topics: Optional[set] = None,
+        used_topics: Optional[set] = None,
+    ) -> str:
+        if input_topic.endswith("/ffmpeg"):
+            base_topic = input_topic[: -len("/ffmpeg")]
+        else:
+            base_topic = f"{input_topic}/decoded"
+
+        existing_topics = existing_topics or set()
+        used_topics = used_topics or set()
+        if base_topic not in existing_topics and base_topic not in used_topics:
+            return base_topic
+
+        candidate = f"{base_topic}_decoded"
+        suffix = 1
+        while candidate in existing_topics or candidate in used_topics:
+            suffix += 1
+            candidate = f"{base_topic}_decoded_{suffix}"
+        return candidate
+
+    def _discover_ffmpeg_decode_topic_map(
+        self,
+        topic_types: Dict[str, str],
+        include_topics: Optional[List[str]] = None,
+        exclude_topics: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        include_set = set(include_topics or [])
+        exclude_set = set(exclude_topics or [])
+        existing_topics = set(topic_types.keys())
+        used_outputs: set = set()
+        topic_map: Dict[str, str] = {}
+
+        for topic_name, msg_type in sorted(topic_types.items()):
+            if not _is_ffmpeg_packet_msg_type(msg_type):
+                continue
+            out_topic = self._ffmpeg_decoded_output_topic(
+                topic_name,
+                existing_topics=existing_topics,
+                used_topics=used_outputs,
+            )
+            if topic_name in exclude_set or out_topic in exclude_set:
+                continue
+            if include_set and topic_name not in include_set and out_topic not in include_set:
+                continue
+            topic_map[topic_name] = out_topic
+            used_outputs.add(out_topic)
+
+        return topic_map
+
     def _convert_using_rosbag2_py_writer_fallback(
         self,
         src_path: Union[str, Path],
@@ -2098,6 +2260,7 @@ class Ros2BagUtils:
 
         src_store = self._resolve_rosbags_typestore(src_typestore)
         dst_store = self._resolve_rosbags_typestore(dst_typestore)
+        self._ensure_ros1_tf2_typestore(dst_store)
         selected_topics = self._selected_topic_names(
             src_path,
             include_topics=include_topics,
@@ -3289,6 +3452,7 @@ class Ros2BagUtils:
         split_duration: Optional[str] = None,
         split_size: Optional[str] = None,
         decode_ouster: bool = False,
+        decode_ffmpeg: bool = False,
         output_mode: str = "points",
         points_topic: str = "/ouster/points",
         depth_topic: str = "/ouster/depth_image",
@@ -3371,6 +3535,7 @@ class Ros2BagUtils:
                     split_duration=split_duration,
                     split_size=split_size,
                     decode_ouster=decode_ouster,
+                    decode_ffmpeg=decode_ffmpeg,
                     output_mode=output_mode,
                     points_topic=points_topic,
                     depth_topic=depth_topic,
@@ -3510,6 +3675,8 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                     help="LiDAR topic to restore fields for (default: /ouster/points/corrected)")
     sp.add_argument("--decode-ouster", action="store_true", dest="decode_ouster",
                     help="Decode Ouster packet topics and write standard ROS1 PointCloud2/Image/Imu topics directly")
+    sp.add_argument("--decode-ffmpeg", action="store_true", dest="decode_ffmpeg",
+                    help="Decode ffmpeg_image_transport packet topics and write standard ROS1 sensor_msgs/Image topics")
     sp.add_argument("--output-mode", choices=["points", "depth", "both"], default="points",
                     dest="output_mode",
                     help="Derived Ouster lidar output to emit when --decode-ouster is enabled")
@@ -3608,6 +3775,7 @@ def main():
                 split_size=args.split_size,
                 overwrite=args.overwrite,
                 decode_ouster=args.decode_ouster,
+                decode_ffmpeg=args.decode_ffmpeg,
                 output_mode=args.output_mode,
                 points_topic=args.points_topic,
                 depth_topic=args.depth_topic,

@@ -98,6 +98,9 @@ ros2utils convert_to_ros1 \
   [--split-duration 5m] \
   [--split-size 2G] \
   [--no-validate] \
+  [--decode-ouster] \
+  [--decode-ffmpeg] \
+  [--output-mode points|depth|both] \
   [--preserve-lidar-fields] \
   [--lidar-topic /ouster/points/corrected]
 ```
@@ -131,6 +134,9 @@ Behavior notes:
   and then falls back to CLI (`rosbags-convert`) when needed
 - message-typestore conversion is robust for standard ROS types, but custom/rare
   ROS2 types still depend on typestore compatibility and may be dropped
+- `--decode-ouster` decodes Ouster packet topics into standard `sensor_msgs` topics
+- `--decode-ffmpeg` decodes `ffmpeg_image_transport_msgs/msg/FFMPEGPacket` topics into `sensor_msgs/Image`
+- ffmpeg topics that end in `/ffmpeg` are decoded to the same topic without that suffix
 - MCAP metadata/schema corruption can still appear as `KeyError` or `ros_distro`
   parse errors; in those cases only filtered known-good topics are typically preserved
 - this repo defaults to `--src-typestore ros2_jazzy` and `--dst-typestore ros1_noetic`
@@ -148,6 +154,19 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
     --bag /bags/session/run_01.mcap \
     --out /bags/session/run_01_ros1/ \
     --split-duration 10m
+```
+
+Decode Ouster + FFmpeg packet topics in Docker:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+  bash -lc 'source /opt/overlay_ws/install/setup.bash && \
+  ros2utils convert_to_ros1 \
+    --bag /bags/session/run_01.mcap \
+    --out /bags/session/run_01_ros1/ \
+    --decode-ouster \
+    --decode-ffmpeg \
+    --output-mode points'
 ```
 
 ## `ros1utils`

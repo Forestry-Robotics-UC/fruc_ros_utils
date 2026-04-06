@@ -84,6 +84,23 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
     --split-duration 10m
 ```
 
+Convert while decoding Ouster packets and `ffmpeg_image_transport` packet topics:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+  bash -lc 'source /opt/overlay_ws/install/setup.bash && \
+  ros2utils convert_to_ros1 \
+    --bag /bags/session/run_01.mcap \
+    --out /bags/session/run_01_ros1/ \
+    --decode-ouster \
+    --decode-ffmpeg \
+    --output-mode points'
+```
+
+Behavior notes:
+- `--decode-ffmpeg` decodes `ffmpeg_image_transport_msgs/msg/FFMPEGPacket` topics to `sensor_msgs/Image`
+- input topics ending in `/ffmpeg` are decoded to the same topic without the `/ffmpeg` suffix
+
 Convert one or more ROS 2 bags with the standalone duration wrapper:
 
 ```bash
