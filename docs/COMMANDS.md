@@ -120,6 +120,14 @@ ros2utils convert_folder \
   [--dst-typestore ros1_noetic] \
   [--split-duration 5m] \
   [--split-size 2G] \
+  [--decode-ouster] \
+  [--decode-ffmpeg] \
+  [--output-mode points|depth|both] \
+  [--points-topic /ouster/points] \
+  [--depth-topic /ouster/depth_image] \
+  [--imu-topic /ouster/imu] \
+  [--keep-raw-ouster] \
+  [--metadata-file /path/to/metadata.json] \
   [--no-validate]
 ```
 

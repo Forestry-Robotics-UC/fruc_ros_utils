@@ -21,7 +21,9 @@ x-ros-common: &ros-common
     # Live source editing — mounts over the COPY inside the image
     - ../../../:/workspace:rw
     # Bags — read-write so converted .bag files can be written alongside the originals
-    - ${BAGS_PATH:-/tmp}:/bags:rw
+    - ${BAGS_PATH_IN:-/tmp}:/bags:rw
+    - ${BAGS_PATH_OUT:-/tmp}:/bags_out:rw
+
     # Optional: mount a pre-built catkin/colcon workspace at /ws
     # The Dockerfile .bashrc already sources /ws/devel|install/setup.bash if present
     # - /path/to/your/catkin_ws:/ws:rw

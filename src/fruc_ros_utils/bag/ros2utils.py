@@ -3723,6 +3723,23 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     sp.add_argument("--split-size", default=None, dest="split_size",
                     help="Split each source bag before conversion when it exceeds this size. "
                          "Accepts bytes or values like 500M, 2G.")
+    sp.add_argument("--decode-ouster", action="store_true", dest="decode_ouster",
+                    help="Decode Ouster packet topics and write standard ROS1 PointCloud2/Image/Imu topics directly")
+    sp.add_argument("--decode-ffmpeg", action="store_true", dest="decode_ffmpeg",
+                    help="Decode ffmpeg_image_transport packet topics and write standard ROS1 sensor_msgs/Image topics")
+    sp.add_argument("--output-mode", choices=["points", "depth", "both"], default="points",
+                    dest="output_mode",
+                    help="Derived Ouster lidar output to emit when --decode-ouster is enabled")
+    sp.add_argument("--points-topic", default="/ouster/points", dest="points_topic",
+                    help="Output topic for decoded PointCloud2 when --decode-ouster is enabled")
+    sp.add_argument("--depth-topic", default="/ouster/depth_image", dest="depth_topic",
+                    help="Output topic for decoded depth Image when --decode-ouster is enabled")
+    sp.add_argument("--imu-topic", default="/ouster/imu", dest="imu_topic",
+                    help="Output topic for decoded Ouster Imu when --decode-ouster is enabled")
+    sp.add_argument("--keep-raw-ouster", action="store_true", dest="keep_raw_ouster",
+                    help="Keep raw /ouster metadata and packet topics in the ROS1 output alongside decoded topics")
+    sp.add_argument("--metadata-file", default=None, dest="metadata_file",
+                    help="Optional Ouster metadata file used to bootstrap split bags that do not carry /ouster/metadata")
     if enable_shell_completion and argcomplete:
         argcomplete.autocomplete(parser)
     return parser
@@ -3806,7 +3823,14 @@ def main():
                 validate=not args.no_validate,
                 split_duration=args.split_duration,
                 split_size=args.split_size,
-                decode_ouster=False,
+                decode_ouster=args.decode_ouster,
+                decode_ffmpeg=args.decode_ffmpeg,
+                output_mode=args.output_mode,
+                points_topic=args.points_topic,
+                depth_topic=args.depth_topic,
+                imu_topic=args.imu_topic,
+                keep_raw_ouster=args.keep_raw_ouster,
+                metadata_file=args.metadata_file,
             )
         else:
             err(f"Unknown command: {args.cmd}")
