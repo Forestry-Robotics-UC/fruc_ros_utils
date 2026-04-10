@@ -276,6 +276,33 @@ ros1utils colorize_labels \
   [--stride 1] [--max-frames 0] [--resize 1.0]
 ```
 
+Extract RGB images to PNG with timestamp manifest:
+
+```bash
+ros1utils extract_images_manifest \
+  --in /path/to/bag.bag \
+  --out /path/to/output_images \
+  --topics /camera/color/image_raw \
+  [--manifest-name image_manifest] \
+  [--manifest-format {csv,txt,both}] \
+  [--time-source {auto,header,bag}]
+```
+
+Rebuild a ROS1 image bag from manifest and PNG files:
+
+```bash
+ros1utils images_manifest_to_bag \
+  --in /path/to/output_images/image_manifest.csv \
+  --out /path/to/rebuilt.bag \
+  [--images-root /path/to/output_images] \
+  [--topics /camera/color/image_raw] \
+  [--frame-id camera_color_optical_frame] \
+  [--output-encoding {bgr8,rgb8,mono8}] \
+  [--write-time {stamp,bag}] \
+  [--manifest-delimiter {auto,comma,tab,semicolon}] \
+  [--strict]
+```
+
 ### NavSat tools
 
 Export to CSV or KML:

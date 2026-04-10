@@ -15,11 +15,12 @@
 
 # ===== Standard Library =====
 import argparse
+import csv
 import os
 import sys
 import pathlib
 from collections import deque, defaultdict
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 # ===== Third-Party Libraries =====
 import numpy as np
@@ -30,6 +31,7 @@ import pandas as pd
 
 # ===== ROS =====
 import rosbag
+import rospy
 from cv_bridge import CvBridge
 
 # ===== Custom Utilities =====
@@ -89,6 +91,112 @@ def _discover_bags(path: str) -> List[str]:
     if p.is_dir():
         return sorted(str(f) for f in p.glob("*.bag*") if f.is_file())
     return [str(p)]
+
+
+def _is_image_datatype(msg_type: str) -> bool:
+    """Return True when `msg_type` is an image-like ROS message."""
+    return msg_type in (
+        "sensor_msgs/Image",
+        "sensor_msgs/CompressedImage",
+    ) or msg_type.endswith("/Image") or msg_type.endswith("/CompressedImage")
+
+
+def _discover_image_topics(bag: rosbag.Bag, requested_topics: Optional[List[str]]) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """Discover image topics in `bag`, optionally filtering by requested names."""
+    try:
+        info = bag.get_type_and_topic_info()
+        topics_info = info.topics if hasattr(info, "topics") else info[1]
+    except Exception:
+        topics_info = {}
+
+    requested = set(requested_topics or [])
+    image_topics: List[str] = []
+    non_image_requested: List[Tuple[str, str]] = []
+
+    for name, tinfo in topics_info.items():
+        msg_type = getattr(tinfo, "msg_type", getattr(tinfo, "datatype", ""))
+        if not msg_type:
+            continue
+        if requested and name not in requested:
+            continue
+        if _is_image_datatype(msg_type):
+            image_topics.append(name)
+        elif name in requested:
+            non_image_requested.append((name, msg_type))
+
+    return image_topics, non_image_requested
+
+
+def _decode_image_to_bgr(msg, bridge: CvBridge):
+    """Decode ROS image message (raw or compressed) into BGR numpy array."""
+    msg_type = getattr(msg, "_type", "")
+    if msg_type.endswith("CompressedImage"):
+        image = bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+    else:
+        encoding = getattr(msg, "encoding", "") or ""
+        if "bayer" in encoding.lower():
+            image = demosaic_bayer_ros(msg)
+        else:
+            image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+    if image is None or getattr(image, "size", 0) == 0:
+        raise ValueError("Decoded image is empty")
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif image.ndim == 3 and image.shape[2] == 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+    return image
+
+
+def _to_secs_nsecs(time_value) -> Tuple[int, int]:
+    """Convert ROS Time-like object into integer second/nanosecond parts."""
+    if hasattr(time_value, "secs") and hasattr(time_value, "nsecs"):
+        return int(time_value.secs), int(time_value.nsecs)
+    if hasattr(time_value, "to_sec"):
+        as_float = float(time_value.to_sec())
+    else:
+        as_float = float(time_value)
+    secs = int(as_float)
+    nsecs = int(round((as_float - secs) * 1e9))
+    if nsecs >= 1_000_000_000:
+        secs += 1
+        nsecs -= 1_000_000_000
+    return secs, nsecs
+
+
+def _pick_stamp(msg, bag_time, time_source: str) -> Tuple[int, int, str]:
+    """
+    Pick output timestamp based on user preference.
+
+    Returns:
+        `(secs, nsecs, source_label)` where source_label is one of:
+        `header`, `bag`, or `bag_fallback`.
+    """
+    header = getattr(msg, "header", None)
+    has_header = header is not None and hasattr(header, "stamp")
+    if has_header:
+        h_secs, h_nsecs = _to_secs_nsecs(header.stamp)
+    else:
+        h_secs, h_nsecs = 0, 0
+    b_secs, b_nsecs = _to_secs_nsecs(bag_time)
+
+    if time_source == "bag":
+        return b_secs, b_nsecs, "bag"
+    if time_source == "header":
+        if has_header and (h_secs != 0 or h_nsecs != 0):
+            return h_secs, h_nsecs, "header"
+        return b_secs, b_nsecs, "bag_fallback"
+    # auto mode
+    if has_header and (h_secs != 0 or h_nsecs != 0):
+        return h_secs, h_nsecs, "header"
+    return b_secs, b_nsecs, "bag_fallback"
+
+
+def _sanitize_topic_for_path(topic: str) -> str:
+    """Convert topic name into a safe folder name."""
+    cleaned = topic.strip("/")
+    if not cleaned:
+        return "root"
+    return cleaned.replace("/", "__")
 
 
 def _resolve_out_bag(save_bag: str, bag_path: str, multiple: bool) -> str:
@@ -648,36 +756,13 @@ class RosbagUtils:
         results: Dict[str, List] = {}
         bag_files = _discover_bags(in_path)
 
-        def _is_image_datatype(dt: str) -> bool:
-            # Be strict first, but allow common custom types that end with Image
-            return dt in ("sensor_msgs/Image", "sensor_msgs/CompressedImage") or dt.endswith("/Image") or dt.endswith("/CompressedImage")
-
         for bag_file in bag_files:
             bridge = CvBridge()
             images = []
             ctx = deque(maxlen=ctx_size)
 
             with rosbag.Bag(bag_file, "r") as bag:
-                # --- discover image topics in this bag ---
-                try:
-                    info = bag.get_type_and_topic_info()
-                    topics_info = info.topics if hasattr(info, "topics") else info[1]
-                except Exception:
-                    topics_info = {}
-
-                # Filter requested topics down to image topics available in this bag
-                requested = set(topics or [])
-                image_topics = []
-                non_image_requested = []
-                for name, tinfo in topics_info.items():
-                    msg_type = getattr(tinfo, "msg_type", getattr(tinfo, "datatype", None))
-                    if not msg_type:
-                        continue
-                    if (not requested) or (name in requested):
-                        if _is_image_datatype(msg_type):
-                            image_topics.append(name)
-                        elif name in requested:
-                            non_image_requested.append((name, msg_type))
+                image_topics, non_image_requested = _discover_image_topics(bag, topics)
 
                 if non_image_requested:
                     for name, msg_type in non_image_requested:
@@ -693,27 +778,7 @@ class RosbagUtils:
                 # --- iterate only image topics ---
                 for topic, msg, t in _iter_messages(bag, desc=f"Images {os.path.basename(bag_file)}", topics=image_topics):
                     try:
-                        # Decode by runtime message type
-                        mtype = getattr(msg, "_type", "")
-                        if mtype.endswith("CompressedImage"):
-                            cv_img = bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                        else:
-                            # sensor_msgs/Image (raw)
-                            enc = getattr(msg, "encoding", "") or ""
-                            if "bayer" in enc.lower():
-                                
-                                cv_img = demosaic_bayer_ros(msg)  # returns BGR
-
-                            else:
-                                cv_img = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-
-                        # Safety: skip invalid/empty frames; ensure 3-channel BGR
-                        if cv_img is None or getattr(cv_img, "size", 0) == 0:
-                            logger.warning("Decoded empty image at %.6f on %s in %s", t.to_sec(), topic, bag_file)
-                            continue
-                        if cv_img.ndim == 2:
-                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_GRAY2BGR)
-
+                        cv_img = _decode_image_to_bgr(msg, bridge)
                         ts = t.to_sec()
                         if with_context:
                             ctx.append(cv_img)
@@ -730,6 +795,295 @@ class RosbagUtils:
             logger.debug("%s → %d frames (image topics considered: %s)", bag_file, len(images), image_topics)
 
         return results
+
+    def extract_images_manifest(
+        self,
+        in_path: str,
+        out_dir: str,
+        topics: Optional[List[str]] = None,
+        manifest_name: str = "image_manifest",
+        manifest_format: str = "csv",
+        time_source: str = "auto",
+    ) -> Dict[str, int]:
+        """
+        Extract image messages as PNG files and write a timestamp manifest.
+
+        The manifest stores one row per saved image so it can be round-tripped
+        back into a ROS1 bag with `images_manifest_to_bag`.
+        """
+        bag_files = _discover_bags(in_path)
+        if not bag_files:
+            raise ValueError(f"No bag files found in {in_path}")
+
+        out_root = pathlib.Path(out_dir)
+        out_root.mkdir(parents=True, exist_ok=True)
+
+        manifest_stem = pathlib.Path(manifest_name).stem if pathlib.Path(manifest_name).suffix else manifest_name
+        if not manifest_stem:
+            manifest_stem = "image_manifest"
+
+        manifest_specs: List[Tuple[pathlib.Path, str]] = []
+        if manifest_format in ("csv", "both"):
+            manifest_specs.append((out_root / f"{manifest_stem}.csv", ","))
+        if manifest_format in ("txt", "both"):
+            manifest_specs.append((out_root / f"{manifest_stem}.txt", "\t"))
+        if not manifest_specs:
+            raise ValueError(f"Unsupported manifest format: {manifest_format}")
+
+        fieldnames = [
+            "bag_path",
+            "bag_name",
+            "topic",
+            "message_index",
+            "stamp_source",
+            "stamp_sec",
+            "stamp_nsec",
+            "stamp",
+            "bag_time_sec",
+            "bag_time_nsec",
+            "bag_time",
+            "frame_id",
+            "seq",
+            "encoding",
+            "width",
+            "height",
+            "step",
+            "is_bigendian",
+            "image_relpath",
+            "image_path",
+        ]
+
+        handles: List = []
+        writers: List[csv.DictWriter] = []
+        written_paths: List[pathlib.Path] = []
+        saved_images = 0
+
+        try:
+            for path, delimiter in manifest_specs:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                handle = path.open("w", newline="", encoding="utf-8")
+                writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter=delimiter)
+                writer.writeheader()
+                handles.append(handle)
+                writers.append(writer)
+                written_paths.append(path)
+
+            for bag_file in _iter_bags(bag_files, desc="Extracting image PNGs"):
+                bag_name = os.path.basename(bag_file)
+                bag_stem = pathlib.Path(bag_name).stem
+                frame_idx_per_topic: Dict[str, int] = defaultdict(int)
+                with rosbag.Bag(bag_file, "r") as bag:
+                    image_topics, non_image_requested = _discover_image_topics(bag, topics)
+                    for name, msg_type in non_image_requested:
+                        logger.warning(
+                            "Topic requested but not an image: %s (type=%s) in %s",
+                            name,
+                            msg_type,
+                            bag_file,
+                        )
+                    if not image_topics:
+                        logger.warning("No image topics found (requested=%s) in %s", topics, bag_file)
+                        continue
+
+                    bridge = CvBridge()
+                    for topic, msg, bag_time in _iter_messages(
+                        bag,
+                        desc=f"Saving {bag_name}",
+                        topics=image_topics,
+                    ):
+                        try:
+                            cv_img = _decode_image_to_bgr(msg, bridge)
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to decode image at %.6f on %s in %s: %s",
+                                bag_time.to_sec(),
+                                topic,
+                                bag_file,
+                                exc,
+                            )
+                            continue
+
+                        stamp_sec, stamp_nsec, stamp_source_label = _pick_stamp(msg, bag_time, time_source)
+                        bag_sec, bag_nsec = _to_secs_nsecs(bag_time)
+
+                        frame_idx_per_topic[topic] += 1
+                        msg_index = frame_idx_per_topic[topic]
+
+                        topic_dir = out_root / bag_stem / _sanitize_topic_for_path(topic)
+                        topic_dir.mkdir(parents=True, exist_ok=True)
+                        image_name = f"{stamp_sec:010d}_{stamp_nsec:09d}_{msg_index:06d}.png"
+                        image_path = topic_dir / image_name
+
+                        if not cv2.imwrite(str(image_path), cv_img):
+                            logger.warning("Failed to write PNG %s", image_path)
+                            continue
+
+                        image_relpath = image_path.relative_to(out_root).as_posix()
+                        header = getattr(msg, "header", None)
+                        row = {
+                            "bag_path": str(pathlib.Path(bag_file).resolve()),
+                            "bag_name": bag_name,
+                            "topic": topic,
+                            "message_index": msg_index,
+                            "stamp_source": stamp_source_label,
+                            "stamp_sec": stamp_sec,
+                            "stamp_nsec": stamp_nsec,
+                            "stamp": f"{stamp_sec}.{stamp_nsec:09d}",
+                            "bag_time_sec": bag_sec,
+                            "bag_time_nsec": bag_nsec,
+                            "bag_time": f"{bag_sec}.{bag_nsec:09d}",
+                            "frame_id": getattr(header, "frame_id", ""),
+                            "seq": getattr(header, "seq", msg_index),
+                            "encoding": getattr(msg, "encoding", "bgr8"),
+                            "width": getattr(msg, "width", cv_img.shape[1]),
+                            "height": getattr(msg, "height", cv_img.shape[0]),
+                            "step": getattr(msg, "step", cv_img.shape[1] * 3),
+                            "is_bigendian": getattr(msg, "is_bigendian", 0),
+                            "image_relpath": image_relpath,
+                            "image_path": str(image_path.resolve()),
+                        }
+                        for writer in writers:
+                            writer.writerow(row)
+                        saved_images += 1
+        finally:
+            for handle in handles:
+                handle.close()
+
+        if saved_images == 0:
+            logger.warning("No images were extracted from %s", in_path)
+        else:
+            logger.info("Extracted %d images into %s", saved_images, out_root)
+            for manifest_path in written_paths:
+                logger.info("Wrote manifest: %s", manifest_path)
+
+        return {
+            "bags": len(bag_files),
+            "images": saved_images,
+            "manifests": len(written_paths),
+        }
+
+    def images_manifest_to_bag(
+        self,
+        manifest_path: str,
+        out_bag: str,
+        images_root: Optional[str] = None,
+        topic_override: Optional[str] = None,
+        frame_id_override: Optional[str] = None,
+        output_encoding: str = "bgr8",
+        write_time: str = "stamp",
+        delimiter_mode: str = "auto",
+        strict: bool = False,
+    ) -> Dict[str, int]:
+        """
+        Rebuild a ROS1 image bag from a timestamp manifest and PNG files.
+        """
+        manifest = pathlib.Path(manifest_path)
+        if not manifest.exists():
+            raise FileNotFoundError(f"Manifest not found: {manifest_path}")
+
+        root = pathlib.Path(images_root) if images_root else manifest.parent
+        out_bag_path = pathlib.Path(out_bag)
+        out_bag_path.parent.mkdir(parents=True, exist_ok=True)
+
+        delimiter_lookup = {
+            "comma": ",",
+            "tab": "\t",
+            "semicolon": ";",
+        }
+
+        def _parse_int(row: Dict[str, str], key: str, default: int = 0) -> int:
+            raw = row.get(key)
+            if raw is None or raw == "":
+                return default
+            try:
+                return int(float(raw))
+            except Exception:
+                return default
+
+        with manifest.open("r", newline="", encoding="utf-8") as handle:
+            if delimiter_mode == "auto":
+                sample = handle.read(4096)
+                handle.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+                    delimiter = dialect.delimiter
+                except Exception:
+                    delimiter = "\t" if manifest.suffix.lower() == ".txt" else ","
+            else:
+                delimiter = delimiter_lookup[delimiter_mode]
+
+            reader = csv.DictReader(handle, delimiter=delimiter)
+            fieldnames = set(reader.fieldnames or [])
+            if not {"image_relpath", "image_path"} & fieldnames:
+                raise ValueError("Manifest must include 'image_relpath' or 'image_path' column")
+
+            written = 0
+            skipped = 0
+            with rosbag.Bag(str(out_bag_path), "w") as bag:
+                for row in tqdm(reader, desc="Rebuilding image bag", unit="img"):
+                    image_key = row.get("image_relpath") or row.get("image_path") or ""
+                    if not image_key:
+                        skipped += 1
+                        if strict:
+                            raise ValueError("Manifest row missing image_relpath/image_path")
+                        logger.warning("Skipping row without image path column")
+                        continue
+
+                    image_path = pathlib.Path(image_key)
+                    if not image_path.is_absolute():
+                        image_path = root / image_path
+                    image_path = image_path.resolve()
+                    if not image_path.exists():
+                        skipped += 1
+                        if strict:
+                            raise FileNotFoundError(f"Image path not found: {image_path}")
+                        logger.warning("Image not found, skipping: %s", image_path)
+                        continue
+
+                    cv_img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+                    if cv_img is None:
+                        skipped += 1
+                        if strict:
+                            raise ValueError(f"Failed to read image: {image_path}")
+                        logger.warning("Failed to read image, skipping: %s", image_path)
+                        continue
+
+                    if output_encoding in ("bgr8", "rgb8"):
+                        if cv_img.ndim == 2:
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_GRAY2BGR)
+                        elif cv_img.ndim == 3 and cv_img.shape[2] == 4:
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGRA2BGR)
+                        if output_encoding == "rgb8":
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+                    elif output_encoding == "mono8" and cv_img.ndim == 3:
+                        if cv_img.shape[2] == 4:
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGRA2BGR)
+                        cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
+
+                    stamp_sec = _parse_int(row, "stamp_sec")
+                    stamp_nsec = _parse_int(row, "stamp_nsec")
+                    if stamp_sec == 0 and stamp_nsec == 0 and row.get("stamp"):
+                        stamp_sec, stamp_nsec = _to_secs_nsecs(float(row["stamp"]))
+                    stamp_time = rospy.Time(stamp_sec, stamp_nsec)
+
+                    bag_sec = _parse_int(row, "bag_time_sec")
+                    bag_nsec = _parse_int(row, "bag_time_nsec")
+                    if bag_sec == 0 and bag_nsec == 0 and row.get("bag_time"):
+                        bag_sec, bag_nsec = _to_secs_nsecs(float(row["bag_time"]))
+                    bag_time = rospy.Time(bag_sec, bag_nsec)
+
+                    topic = topic_override or row.get("topic") or "/camera/image_raw"
+                    msg = self.bridge.cv2_to_imgmsg(cv_img, encoding=output_encoding)
+                    msg.header.stamp = stamp_time
+                    msg.header.frame_id = frame_id_override if frame_id_override is not None else row.get("frame_id", "")
+                    msg.header.seq = _parse_int(row, "seq", written + 1)
+
+                    write_stamp = bag_time if write_time == "bag" and (bag_sec or bag_nsec) else stamp_time
+                    bag.write(topic, msg, write_stamp)
+                    written += 1
+
+        logger.info("Wrote %d images to %s (skipped=%d)", written, out_bag_path, skipped)
+        return {"written": written, "skipped": skipped}
 
 
     def analyze_metrics(
@@ -1036,6 +1390,33 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     sp.add_argument("--max-msgs", type=int, default=0,
                     help="Optional limit per bag (0=all)")
 
+    # -------- extract_images_manifest --------
+    sp = sub.add_parser("extract_images_manifest", parents=[common_cfg],
+                        help="Extract image topics to PNG and export timestamp manifest")
+    sp.add_argument("--manifest-name", default="image_manifest",
+                    help="Base name for manifest output file(s)")
+    sp.add_argument("--manifest-format", default="csv", choices=["csv", "txt", "both"],
+                    help="Manifest format to write")
+    sp.add_argument("--time-source", default="auto", choices=["auto", "header", "bag"],
+                    help="Timestamp source for manifest rows")
+    sp.set_defaults(out_path="extracted_images")
+
+    # -------- images_manifest_to_bag --------
+    sp = sub.add_parser("images_manifest_to_bag", parents=[common_cfg],
+                        help="Rebuild a ROS1 image bag from PNG files and a manifest")
+    sp.add_argument("--images-root", default=None,
+                    help="Root directory for image_relpath entries (default: manifest folder)")
+    sp.add_argument("--frame-id", dest="frame_id", default=None,
+                    help="Override frame_id for all output messages")
+    sp.add_argument("--output-encoding", default="bgr8", choices=["bgr8", "rgb8", "mono8"],
+                    help="sensor_msgs/Image encoding for output messages")
+    sp.add_argument("--write-time", default="stamp", choices=["stamp", "bag"],
+                    help="Timestamp used for bag write time")
+    sp.add_argument("--manifest-delimiter", default="auto", choices=["auto", "comma", "tab", "semicolon"],
+                    help="Delimiter used when reading manifest")
+    sp.add_argument("--strict", action="store_true",
+                    help="Fail fast on malformed rows or missing image files")
+
     # -------- colorize_labels --------
     sp = sub.add_parser("colorize_labels", parents=[common_cfg],
                         help="Colorize label images from bag(s) using a color map")
@@ -1149,6 +1530,46 @@ def main() -> None:
         # print_results(results, "NavSat Report:")
     elif args.cmd == "extract_metadata":
         bu.extract_metadata(cfg["in_path"], cfg.get("out_path"), cfg.get("topics"), cfg.get("max_msgs", 0))
+
+    elif args.cmd == "extract_images_manifest":
+        in_path = cfg.get("in_path")
+        out_path = cfg.get("out_path")
+        if not in_path:
+            parser.error("extract_images_manifest requires --in")
+        if not out_path:
+            parser.error("extract_images_manifest requires --out")
+        results = bu.extract_images_manifest(
+            in_path=in_path,
+            out_dir=out_path,
+            topics=cfg.get("topics"),
+            manifest_name=cfg.get("manifest_name", "image_manifest"),
+            manifest_format=cfg.get("manifest_format", "csv"),
+            time_source=cfg.get("time_source", "auto"),
+        )
+        print_results(results, "Image Extraction Summary:")
+
+    elif args.cmd == "images_manifest_to_bag":
+        in_path = cfg.get("in_path")
+        out_path = cfg.get("out_path")
+        if not in_path:
+            parser.error("images_manifest_to_bag requires --in (manifest path)")
+        if not out_path:
+            parser.error("images_manifest_to_bag requires --out (output .bag path)")
+        topic_override = None
+        if cfg.get("topics"):
+            topic_override = cfg["topics"][0]
+        results = bu.images_manifest_to_bag(
+            manifest_path=in_path,
+            out_bag=out_path,
+            images_root=cfg.get("images_root"),
+            topic_override=topic_override,
+            frame_id_override=cfg.get("frame_id"),
+            output_encoding=cfg.get("output_encoding", "bgr8"),
+            write_time=cfg.get("write_time", "stamp"),
+            delimiter_mode=cfg.get("manifest_delimiter", "auto"),
+            strict=bool(cfg.get("strict", False)),
+        )
+        print_results(results, "Bag Rebuild Summary:")
 
     elif args.cmd == "colorize_labels":
         bu.colorize_label_images(

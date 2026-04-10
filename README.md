@@ -119,6 +119,32 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
   ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
 ```
 
+Extract RGB frames as PNG plus a timestamp manifest:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm noetic \
+  ros1utils extract_images_manifest \
+    --in /bags/session/run_01_ros1.bag \
+    --out /bags/session/run_01_images \
+    --topics /camera/color/image_raw \
+    --manifest-name camera_color \
+    --manifest-format csv \
+    --time-source auto
+```
+
+Rebuild a ROS 1 Noetic bag from those PNGs + manifest:
+
+```bash
+BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm noetic \
+  ros1utils images_manifest_to_bag \
+    --in /bags/session/run_01_images/camera_color.csv \
+    --out /bags/session/run_01_rebuilt.bag \
+    --images-root /bags/session/run_01_images \
+    --topics /camera/color/image_raw \
+    --output-encoding bgr8 \
+    --write-time stamp
+```
+
 Run the offline MAPIR NDVI helper:
 
 ```bash
