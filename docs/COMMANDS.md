@@ -285,8 +285,14 @@ ros1utils extract_images_manifest \
   --topics /camera/color/image_raw \
   [--manifest-name image_manifest] \
   [--manifest-format {csv,txt,both}] \
-  [--time-source {auto,header,bag}]
+  [--time-source {auto,header,bag}] \
+  [--topic-discovery-timeout 5.0] \
+  [--startup-timeout 25.0]
 ```
+
+`--startup-timeout` enables immediate sequential partial scan (`read_messages()` on all topics)
+and logs a warning if no selected image-topic message appears within that many seconds.
+Extraction still continues and saves frames only from the selected image topic(s).
 
 Rebuild a ROS1 image bag from manifest and PNG files:
 

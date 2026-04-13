@@ -17,10 +17,12 @@
 import argparse
 import csv
 import os
+import signal
 import sys
 import pathlib
+import time
 from collections import deque, defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 # ===== Third-Party Libraries =====
 import numpy as np
@@ -125,6 +127,24 @@ def _discover_image_topics(bag: rosbag.Bag, requested_topics: Optional[List[str]
             non_image_requested.append((name, msg_type))
 
     return image_topics, non_image_requested
+
+
+def _run_with_timeout(action: Callable[[], Tuple[List[str], List[Tuple[str, str]]]], timeout_s: float) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """Run a callable with a wall-clock timeout (Unix only); timeout <=0 disables it."""
+    if timeout_s <= 0.0 or not hasattr(signal, "SIGALRM"):
+        return action()
+
+    def _alarm_handler(_signum, _frame):
+        raise TimeoutError(f"operation timed out after {timeout_s:.1f}s")
+
+    previous = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.setitimer(signal.ITIMER_REAL, timeout_s)
+    try:
+        return action()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _decode_image_to_bgr(msg, bridge: CvBridge):
@@ -749,9 +769,23 @@ class RosbagUtils:
 
         return reports
 
-    def extract_images(self, in_path: str, topics: List[str], with_context: bool = False, ctx_size: int = 3) -> Dict[str, List]:
+    def extract_images(
+        self,
+        in_path: str,
+        topics: List[str],
+        with_context: bool = False,
+        ctx_size: int = 3,
+        topic_discovery_timeout_s: float = 5.0,
+    ) -> Dict[str, List]:
         global logger
-        logger.debug("Input=%s topics=%s with_context=%s ctx_size=%d", in_path, topics, with_context, ctx_size)
+        logger.debug(
+            "Input=%s topics=%s with_context=%s ctx_size=%d topic_discovery_timeout_s=%.2f",
+            in_path,
+            topics,
+            with_context,
+            ctx_size,
+            topic_discovery_timeout_s,
+        )
 
         results: Dict[str, List] = {}
         bag_files = _discover_bags(in_path)
@@ -762,7 +796,26 @@ class RosbagUtils:
             ctx = deque(maxlen=ctx_size)
 
             with rosbag.Bag(bag_file, "r") as bag:
-                image_topics, non_image_requested = _discover_image_topics(bag, topics)
+                if topics:
+                    image_topics = list(topics)
+                    non_image_requested: List[Tuple[str, str]] = []
+                else:
+                    try:
+                        image_topics, non_image_requested = _run_with_timeout(
+                            lambda: _discover_image_topics(bag, topics),
+                            timeout_s=topic_discovery_timeout_s,
+                        )
+                    except TimeoutError:
+                        logger.warning(
+                            (
+                                "Topic discovery timed out after %.1fs for %s. "
+                                "Pass --topics to skip discovery and start immediately."
+                            ),
+                            topic_discovery_timeout_s,
+                            bag_file,
+                        )
+                        results[os.path.basename(bag_file)] = images
+                        continue
 
                 if non_image_requested:
                     for name, msg_type in non_image_requested:
@@ -804,6 +857,8 @@ class RosbagUtils:
         manifest_name: str = "image_manifest",
         manifest_format: str = "csv",
         time_source: str = "auto",
+        topic_discovery_timeout_s: float = 5.0,
+        startup_timeout_s: float = 25.0,
     ) -> Dict[str, int]:
         """
         Extract image messages as PNG files and write a timestamp manifest.
@@ -868,29 +923,144 @@ class RosbagUtils:
                 writers.append(writer)
                 written_paths.append(path)
 
-            for bag_file in _iter_bags(bag_files, desc="Extracting image PNGs"):
+            for bag_index, bag_file in enumerate(bag_files, start=1):
                 bag_name = os.path.basename(bag_file)
                 bag_stem = pathlib.Path(bag_name).stem
                 frame_idx_per_topic: Dict[str, int] = defaultdict(int)
-                with rosbag.Bag(bag_file, "r") as bag:
-                    image_topics, non_image_requested = _discover_image_topics(bag, topics)
-                    for name, msg_type in non_image_requested:
-                        logger.warning(
-                            "Topic requested but not an image: %s (type=%s) in %s",
-                            name,
-                            msg_type,
-                            bag_file,
-                        )
+                logger.info("Extracting bag %d/%d: %s", bag_index, len(bag_files), bag_name)
+                startup_t0 = time.monotonic()
+
+                def _remaining_startup_timeout(preferred_timeout: float) -> float:
+                    if preferred_timeout <= 0.0:
+                        return 0.0
+                    if startup_timeout_s <= 0.0:
+                        return preferred_timeout
+                    elapsed = time.monotonic() - startup_t0
+                    remaining = startup_timeout_s - elapsed
+                    if remaining <= 0.0:
+                        return 0.0
+                    return min(preferred_timeout, remaining)
+
+                bag = None
+                open_timeout = _remaining_startup_timeout(startup_timeout_s if startup_timeout_s > 0.0 else 0.0)
+                if startup_timeout_s > 0.0 and open_timeout <= 0.0:
+                    logger.warning(
+                        "Startup timeout reached before opening %s (timeout=%.1fs); skipping bag",
+                        bag_file,
+                        startup_timeout_s,
+                    )
+                    continue
+
+                def _open_bag():
+                    try:
+                        # For very large bags, indexed open can take a long time.
+                        # Prefer sequential streaming mode first.
+                        return rosbag.Bag(bag_file, "r", allow_unindexed=True, skip_index=True)
+                    except TypeError:
+                        return rosbag.Bag(bag_file, "r")
+
+                try:
+                    bag = _run_with_timeout(_open_bag, timeout_s=open_timeout)
+                except TimeoutError:
+                    logger.warning(
+                        "Opening bag timed out after %.1fs for %s; skipping bag",
+                        open_timeout,
+                        bag_file,
+                    )
+                    continue
+                with bag:
+                    if topics:
+                        image_topics = list(topics)
+                    else:
+                        discover_timeout = _remaining_startup_timeout(topic_discovery_timeout_s)
+                        if topic_discovery_timeout_s > 0.0 and discover_timeout <= 0.0:
+                            logger.warning(
+                                (
+                                    "Startup timeout reached before topic discovery in %s "
+                                    "(timeout=%.1fs); skipping bag"
+                                ),
+                                bag_file,
+                                startup_timeout_s,
+                            )
+                            continue
+                        try:
+                            image_topics, non_image_requested = _run_with_timeout(
+                                lambda: _discover_image_topics(bag, topics),
+                                timeout_s=discover_timeout,
+                            )
+                        except TimeoutError:
+                            logger.warning(
+                                (
+                                    "Topic discovery timed out after %.1fs for %s. "
+                                    "Provide --topics to skip discovery and start immediately."
+                                ),
+                                topic_discovery_timeout_s,
+                                bag_file,
+                            )
+                            continue
+                        for name, msg_type in non_image_requested:
+                            logger.warning(
+                                "Topic requested but not an image: %s (type=%s) in %s",
+                                name,
+                                msg_type,
+                                bag_file,
+                            )
                     if not image_topics:
                         logger.warning("No image topics found (requested=%s) in %s", topics, bag_file)
                         continue
 
                     bridge = CvBridge()
-                    for topic, msg, bag_time in _iter_messages(
-                        bag,
-                        desc=f"Saving {bag_name}",
-                        topics=image_topics,
-                    ):
+                    saved_in_bag = 0
+                    topic_label = image_topics[0] if len(image_topics) == 1 else f"{len(image_topics)} topics"
+                    # Do not block on topic-filtered first message retrieval for large bags.
+                    # When startup timeout mode is enabled, start with partial sequential scan
+                    # immediately and filter in-process so progress starts right away.
+                    fallback_partial_scan = startup_timeout_s > 0.0
+                    if fallback_partial_scan:
+                        logger.info(
+                            (
+                                "Startup timeout mode enabled (%.1fs): starting partial sequential scan "
+                                "and filtering selected topics=%s"
+                            ),
+                            startup_timeout_s,
+                            image_topics,
+                        )
+                        iterator_source = bag.read_messages()
+                    else:
+                        iterator_source = bag.read_messages(topics=image_topics)
+
+                    iterator_desc = (
+                        f"Scanning all msgs ({bag_index}/{len(bag_files)})"
+                        if fallback_partial_scan
+                        else f"Reading {topic_label} ({bag_index}/{len(bag_files)})"
+                    )
+                    iterator = tqdm(iterator_source, desc=iterator_desc, unit="msg", leave=True, dynamic_ncols=True)
+                    scanned_in_bag = 0
+                    first_image_seen = False
+                    first_image_timeout_warned = False
+                    scan_t0 = time.monotonic()
+                    for topic, msg, bag_time in iterator:
+                        scanned_in_bag += 1
+                        if fallback_partial_scan and topic not in image_topics:
+                            if scanned_in_bag % 5000 == 0:
+                                iterator.set_postfix(scanned=scanned_in_bag, saved=saved_in_bag)
+                            if (
+                                startup_timeout_s > 0.0
+                                and not first_image_timeout_warned
+                                and (time.monotonic() - scan_t0) >= startup_timeout_s
+                            ):
+                                logger.warning(
+                                    (
+                                        "No image message found within %.1fs in %s for topics=%s; "
+                                        "continuing partial scan"
+                                    ),
+                                    startup_timeout_s,
+                                    bag_file,
+                                    image_topics,
+                                )
+                                first_image_timeout_warned = True
+                            continue
+                        first_image_seen = True
                         try:
                             cv_img = _decode_image_to_bgr(msg, bridge)
                         except Exception as exc:
@@ -945,6 +1115,19 @@ class RosbagUtils:
                         for writer in writers:
                             writer.writerow(row)
                         saved_images += 1
+                        saved_in_bag += 1
+                        if saved_in_bag % 200 == 0:
+                            if fallback_partial_scan:
+                                iterator.set_postfix(scanned=scanned_in_bag, saved=saved_in_bag, topic=topic)
+                            else:
+                                iterator.set_postfix(saved=saved_in_bag, topic=topic)
+                    if not first_image_seen:
+                        logger.warning(
+                            "No messages observed for selected image topics=%s in %s",
+                            image_topics,
+                            bag_file,
+                        )
+                    logger.info("Saved %d image(s) from %s", saved_in_bag, bag_name)
         finally:
             for handle in handles:
                 handle.close()
@@ -1399,6 +1582,10 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                     help="Manifest format to write")
     sp.add_argument("--time-source", default="auto", choices=["auto", "header", "bag"],
                     help="Timestamp source for manifest rows")
+    sp.add_argument("--topic-discovery-timeout", type=float, default=5.0,
+                    help="Seconds before topic auto-discovery is aborted (<=0 disables timeout)")
+    sp.add_argument("--startup-timeout", type=float, default=25.0,
+                    help="When >0, start partial sequential scan immediately and warn if no image appears within this many seconds")
     sp.set_defaults(out_path="extracted_images")
 
     # -------- images_manifest_to_bag --------
@@ -1545,6 +1732,8 @@ def main() -> None:
             manifest_name=cfg.get("manifest_name", "image_manifest"),
             manifest_format=cfg.get("manifest_format", "csv"),
             time_source=cfg.get("time_source", "auto"),
+            topic_discovery_timeout_s=cfg.get("topic_discovery_timeout", 5.0),
+            startup_timeout_s=cfg.get("startup_timeout", 25.0),
         )
         print_results(results, "Image Extraction Summary:")
 
