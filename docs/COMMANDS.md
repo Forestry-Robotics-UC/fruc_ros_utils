@@ -221,6 +221,18 @@ ros1utils change_frame_id \
   --new-frame-id imu_link
 ```
 
+Rename topics:
+
+```bash
+ros1utils remap_topics \
+  --in /path/to/bag.bag \
+  --remap /old/topic:/new/topic /old2:/new2 \
+  [--out /path/to/output.bag] \
+  [--overwrite]
+```
+
+If `--out` is omitted, the command writes a new `_remapped` bag by default.
+
 Print topic sizes:
 
 ```bash

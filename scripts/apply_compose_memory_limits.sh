@@ -53,7 +53,6 @@ LOCAL_UID="$(id -u)"
 LOCAL_GID="$(id -g)"
 
 write_env_file "${DOCKER_DIR}/ros/.env" "FRUC_ROS"
-write_env_file "${DOCKER_DIR}/iKalibr/.env" "IKALIBR"
 
 printf 'Wrote Docker memory limits at %s%% of %s MiB (%s MiB).\n' \
     "$PERCENT" "$TOTAL_MIB" "$LIMIT_MIB"

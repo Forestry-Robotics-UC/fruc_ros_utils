@@ -162,6 +162,7 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 
 - [docs/README.md](docs/README.md): documentation index
 - [docs/DOCKER.md](docs/DOCKER.md): Docker usage, compose files, host vs container paths
+- [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md): release summary and feature overview
 - [docs/COMMANDS.md](docs/COMMANDS.md): command reference with examples
 - [UTILS.md](docs/UTILS.md): shared utilities overview
 
@@ -171,7 +172,7 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 ```text
 fruc_ros_utils/
 |- config/              YAML defaults and user overrides
-|- Docker/              compose stacks for ROS tools and iKalibr
+|- Docker/              compose stacks for ROS tools
 |- docs/                documentation index and references
 |- pyproject.toml       Python package metadata used by Docker and pip installs
 |- scripts/             helper scripts and batch wrappers

@@ -2,14 +2,13 @@
 
 Use this document when you are not sure which compose file to run, where paths should point, or whether a command belongs on the host or inside a container.
 
-## Compose Projects
+## Compose Project
 
-This repo has multiple Docker compose projects:
+This repo uses one Docker compose project for the active tooling:
 
 | Compose file | Purpose | Services |
 | --- | --- | --- |
 | `Docker/ros/docker-compose.yml` | Run `ros2utils` and `ros1utils` | `jazzy`, `noetic` |
-| `Docker/iKalibr/docker-compose.yml` | Run iKalibr tools | `solver`, `solver-cuda`, `imu-calib`, `shell` |
 
 If you need `ros2utils convert_to_ros1`, use `Docker/ros/docker-compose.yml`.
 
@@ -22,42 +21,6 @@ The ROS utility Docker images install this repo with `pip install .`, so the com
 - `ros2utils`
 
 This is the same command surface that the catkin package exposes locally through `setup.py` and installed wrapper scripts. The goal is that Docker and non-Docker usage share the same CLI names.
-
-## iKalibr GPU Builds
-
-The base iKalibr image may contain CPU-only `colmap` / `glomap` binaries even when the container itself can see your GPU.
-
-Two optional source rebuild paths are available:
-- `IKALIBR_REBUILD_CUDA=1`: rebuild Ceres and iKalibr with CUDA support
-- `IKALIBR_REBUILD_SFM_CUDA=1`: rebuild COLMAP, PoseLib, and GLOMAP with CUDA support
-
-Rebuild only the SfM stack:
-
-```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/iKalibr
-IKALIBR_REBUILD_SFM_CUDA=1 COLMAP_CUDA_ARCHITECTURES=all-major docker compose build --no-cache shell solver-cuda
-```
-
-Rebuild the full GPU pipeline:
-
-```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/iKalibr
-IKALIBR_REBUILD_CUDA=1 IKALIBR_REBUILD_SFM_CUDA=1 COLMAP_CUDA_ARCHITECTURES=all-major docker compose build --no-cache shell solver-cuda
-```
-
-Optional build pins:
-- `COLMAP_GIT_REF`
-- `GLOMAP_GIT_REF`
-- `POSELIB_GIT_REF`
-- `COLMAP_CUDA_ARCHITECTURES`
-
-Current defaults:
-- `COLMAP_GIT_REF=3.12.6`
-- `GLOMAP_GIT_REF=1.2.0`
-- `POSELIB_GIT_REF=master`
-
-Those defaults are pinned to stable releases instead of `main` because the base iKalibr image ships an older CUDA toolchain.
-For Docker image builds, prefer `all-major` or an explicit architecture list instead of `native`, because the build container cannot see your host GPU during `docker compose build`.
 
 ## Execution Model
 
@@ -85,6 +48,7 @@ That means:
 Wrong:
 
 ```bash
+cd /path/to/other/project
 docker compose run --rm jazzy ros2utils convert_to_ros1 --bag run_01.mcap
 ```
 
@@ -191,12 +155,12 @@ ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
 ### `no such service: jazzy`
 
 Cause:
-- you are in the wrong compose project, usually `Docker/iKalibr`
+- you are in the wrong compose project
 
 Wrong:
 
 ```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/iKalibr
+cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
 BAGS_PATH=/mnt/t7_shield/my_session docker compose run --rm jazzy ...
 ```
 

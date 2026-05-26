@@ -243,6 +243,40 @@ def _resolve_out_bag(save_bag: str, bag_path: str, multiple: bool) -> str:
     return str(out_path)
 
 
+def _resolve_remap_out_bag(
+    save_bag: Optional[str],
+    bag_path: str,
+    multiple: bool,
+    overwrite: bool,
+) -> str:
+    """Resolve the output path for topic-remapping operations."""
+    bag_path_obj = pathlib.Path(bag_path)
+
+    if overwrite and not save_bag:
+        return str(bag_path_obj)
+
+    if save_bag is None:
+        if multiple:
+            out_dir = bag_path_obj.parent / f"{bag_path_obj.name}_remapped"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            return str(out_dir / f"{bag_path_obj.stem}_remapped.bag")
+        return str(bag_path_obj.with_name(f"{bag_path_obj.stem}_remapped.bag"))
+
+    sbp = pathlib.Path(save_bag)
+    if multiple:
+        if sbp.suffix and not sbp.is_dir():
+            raise ValueError("remap_topics output must be a directory when remapping multiple bags")
+        sbp.mkdir(parents=True, exist_ok=True)
+        return str(sbp / f"{bag_path_obj.stem}_remapped.bag")
+
+    if sbp.suffix and not sbp.is_dir():
+        sbp.parent.mkdir(parents=True, exist_ok=True)
+        return str(sbp)
+
+    sbp.mkdir(parents=True, exist_ok=True)
+    return str(sbp / f"{bag_path_obj.stem}_remapped.bag")
+
+
 def _load_extrinsics(
     bagfiles: List[str],
     topics: List[str],
@@ -418,6 +452,48 @@ class RosbagUtils:
                 logger.info("Wrote cleaned bag to %s (removed topics: %s)", out_bag_file, topics)
             else:
                 logger.warning("No matching topics %s found in %s. Output identical to input.", topics, bag_file)
+
+
+    def remap_topics(self, in_path: str, out_path: Optional[str], remap: Dict[str, str], overwrite: bool = False) -> None:
+        logger.debug("Input=%s out=%s remap=%s overwrite=%s", in_path, out_path, remap, overwrite)
+        if not remap:
+            raise ValueError("remap_topics requires at least one OLD:NEW mapping")
+
+        bag_files = _discover_bags(in_path)
+        multiple = len(bag_files) > 1
+
+        for bag_file in _iter_bags(bag_files, desc="Remapping topics"):
+            out_bag_file = _resolve_remap_out_bag(out_path, bag_file, multiple, overwrite)
+            out_bag_path = pathlib.Path(out_bag_file)
+            temp_out_path = None
+            remapped_messages = 0
+
+            if not overwrite and out_bag_path.exists():
+                raise FileExistsError(
+                    f"Output bag already exists: {out_bag_file} (use --overwrite to replace it)"
+                )
+
+            if overwrite and out_bag_path.resolve() == pathlib.Path(bag_file).resolve():
+                temp_out_path = out_bag_path.with_name(f"{out_bag_path.stem}.__remap_tmp__.bag")
+                target_path = temp_out_path
+            else:
+                target_path = out_bag_path
+
+            with rosbag.Bag(str(target_path), "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
+                remapped_messages = 0
+                for topic, msg, t in _iter_messages(in_bag, desc=f"Remapping {os.path.basename(bag_file)}"):
+                    new_topic = remap.get(topic, topic)
+                    if new_topic != topic:
+                        remapped_messages += 1
+                    out_bag.write(new_topic, msg, t)
+
+            if temp_out_path is not None:
+                os.replace(str(temp_out_path), str(out_bag_path))
+
+            if remapped_messages:
+                logger.info("Wrote remapped bag to %s (remapped %d message(s))", out_bag_file, remapped_messages)
+            else:
+                logger.warning("No matching remap topics found in %s. Output identical to input.", bag_file)
 
 
     def print_topic_sizes(self, in_path: str) -> Dict[str, Dict[str, int]]:
@@ -1536,6 +1612,14 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                         help="Change frame_id on topic(s)")
     sp.add_argument("--new-frame-id", required=True, help="New frame_id to assign")
 
+    # -------- remap_topics --------
+    sp = sub.add_parser("remap_topics", parents=[common_cfg],
+                        help="Rename topics in a ROS 1 bag")
+    sp.add_argument("--remap", nargs="+", required=True, metavar="OLD:NEW",
+                    help="Topic rename mappings to apply to the output bag")
+    sp.add_argument("--overwrite", action="store_true",
+                    help="Overwrite the output bag, or remap in place when --out is omitted")
+
     # -------- print_topic_sizes --------
     sub.add_parser("print_topic_sizes", parents=[common_cfg],
                    help="Print cumulative topic sizes in a bag")
@@ -1696,6 +1780,19 @@ def main() -> None:
 
     elif args.cmd == "change_frame_id":
         bu.change_frame_id(cfg["in_path"], cfg["out_path"], cfg["topics"], cfg["new_frame_id"])
+
+    elif args.cmd == "remap_topics":
+        remap = {}
+        for pair in cfg["remap"]:
+            if ":" not in pair:
+                parser.error(f"--remap entry must be OLD:NEW, got: {pair}")
+            old, new = pair.split(":", 1)
+            old = old.strip()
+            new = new.strip()
+            if not old or not new:
+                parser.error(f"--remap entry must be OLD:NEW, got: {pair}")
+            remap[old] = new
+        bu.remap_topics(cfg["in_path"], cfg.get("out_path"), remap, overwrite=bool(cfg.get("overwrite", False)))
 
     elif args.cmd == "print_topic_sizes":
         results = bu.print_topic_sizes(cfg["in_path"])
