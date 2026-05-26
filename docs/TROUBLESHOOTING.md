@@ -191,8 +191,7 @@ ros2utils convert_to_ros1 --bag /bags/in.mcap --remap /old/topic:/new/topic
 
 Applies to:
 - `ros2utils convert_to_ros1`
-- `scripts/repack_pointcloud_for_ikalibr.py`
-- `scripts/crop_pointcloud_fov.py`
+- `ros1utils crop_pointcloud_fov`
 
 Fix:
 - Add `--overwrite`, or choose a new output path.

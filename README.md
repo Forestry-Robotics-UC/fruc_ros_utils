@@ -18,7 +18,6 @@ This repo is not a single monolithic app. It is a toolbox. The fastest way to us
 | `bagutils` | Dispatcher entrypoint that forwards to `ros1utils` or `ros2utils` |
 | `scripts/` | One-off helpers and batch scripts |
 | `Docker/ros` | Dockerized ROS 1 / ROS 2 utility environment |
-| `Docker/iKalibr` | iKalibr runtime, not the `ros2utils` compose stack |
 
 
 ## Install Modes
@@ -163,7 +162,6 @@ BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run
 
 - [docs/README.md](docs/README.md): documentation index
 - [docs/DOCKER.md](docs/DOCKER.md): Docker usage, compose files, host vs container paths
-- [docs/IKALIBR_DOCKER.md](docs/IKALIBR_DOCKER.md): iKalibr setup and troubleshooting
 - [docs/COMMANDS.md](docs/COMMANDS.md): command reference with examples
 - [UTILS.md](docs/UTILS.md): shared utilities overview
 

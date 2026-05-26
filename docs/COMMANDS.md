@@ -149,7 +149,7 @@ Behavior notes:
   parse errors; in those cases only filtered known-good topics are typically preserved
 - this repo defaults to `--src-typestore ros2_jazzy` and `--dst-typestore ros1_noetic`
 - if conversion appears to stop mid-run, start with an explicit include set for
-  the minimal iKalibr topics to avoid unsupported topic conversions
+  the minimal topic set to avoid unsupported topic conversions
 
 Docker note:
 - when running through Docker, use `/bags/...` for `--bag`, `--out`, and `--folder`
@@ -358,10 +358,6 @@ ros1utils urdf_extrinsics \
 Wrapper-only shortcuts:
 
 ```bash
-ros1utils export_camera_info <bagfile> <camera_info_topic> <out_yaml>
-ros1utils repack_pointcloud <in.bag> <out.bag> [topic]
-ros1utils repack_pointcloud_for_ikalibr <in.bag> <out.bag> [topic]
-ros1utils repack_pointcloud --in <in.bag> --out <out.bag> [--topic /ouster/points/corrected] [--overwrite] [--ring-dtype auto|uint8|uint16]
 ros1utils crop_pointcloud_fov --in <in.bag> --out <out.bag> [--topic /ouster/points] [--fov-deg 120] [--center-deg 0]
 ```
 
@@ -383,21 +379,10 @@ ros1utils extract_metadata \
   [--topic /ouster/metadata]
 ```
 
-Repack point cloud for iKalibr:
+Crop point cloud FOV:
 
 ```bash
-python3 scripts/repack_pointcloud_for_ikalibr.py \
-  --in /path/to/bag.bag \
-  --out /path/to/output_repacked.bag \
-  [--topic /ouster/points/corrected] \
-  [--overwrite] \
-  [--ring-dtype auto|uint8|uint16]
-```
-
-Crop point cloud FOV before iKalibr:
-
-```bash
-python3 scripts/crop_pointcloud_fov.py \
+ros1utils crop_pointcloud_fov \
   --in /path/to/bag.bag \
   --out /path/to/output_fov120.bag \
   [--topic /ouster/points] \

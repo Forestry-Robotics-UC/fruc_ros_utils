@@ -2,8 +2,8 @@
 # PYTHON_ARGCOMPLETE_OK
 """Convert a binary PCD point cloud to binary little-endian PLY.
 
-This helper is intentionally minimal and optimized for the iKalibr outputs in
-this workspace, which are binary PCD files with fields such as:
+This helper is intentionally minimal and optimized for the binary PCD files in
+this workspace, which may contain fields such as:
 
   FIELDS x y z rgba
   SIZE   4 4 4 4

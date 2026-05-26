@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Compatibility wrapper: expose existing ROS1 bag utilities under
-the `ros1utils` entry point, and add a convenience command to
-export CameraInfo into an iKalibr intrinsics YAML.
+the `ros1utils` entry point.
 
 This file intentionally re-exports symbols from `bag.bagutils`
 so existing imports continue to work while providing a new
@@ -24,11 +23,6 @@ try:
     import argcomplete
 except Exception:
     argcomplete = None
-
-try:
-    from fruc_ros_utils.bag import export_camera_info as _export_script
-except Exception:
-    _export_script = None
 
 _default_level = os.environ.get("BAGUTILS_LOG_LEVEL", "INFO").upper()
 _default_file = os.environ.get("BAGUTILS_LOG_FILE", None)
@@ -151,71 +145,8 @@ def _run_completion(argv: list[str]) -> None:
     parser.parse_known_args(argv)
 
 
-def export_camera_info(bagfile: str, topic: str, outpath: str) -> None:
-    """Export a CameraInfo message from a ROS1 bag into an iKalibr YAML.
-
-    This calls the existing `bag/export_camera_info.py` script's `main`
-    function programmatically to avoid spawning subprocesses.
-    """
-    if _export_script is None:
-        raise RuntimeError("export_camera_info helper not available (missing module)")
-
-    # Call the script's main with controlled argv
-    logger.debug(
-        "ros1utils export_camera_info bagfile=%s topic=%s outpath=%s",
-        bagfile,
-        topic,
-        outpath,
-    )
-    argv_backup = sys.argv
-    try:
-        sys.argv = ["export_camera_info.py", bagfile, topic, outpath]
-        _export_script.main()
-    finally:
-        sys.argv = argv_backup
-
-
-def repack_pointcloud_for_ikalibr(
-    in_bag: str,
-    out_bag: str,
-    topic: str = "/ouster/points/corrected",
-    overwrite: bool = False,
-    ring_dtype: str = "auto",
-) -> None:
-    """Run the `scripts/repack_pointcloud_for_ikalibr.py` helper on the given bags.
-
-    This loads and executes the script in-process by setting `sys.argv` so the
-    script can be reused without spawning a subprocess.
-    """
-    from fruc_ros_utils.bag import repack_pointcloud_for_ikalibr as repack_tool
-
-    logger.debug(
-        "ros1utils repack_pointcloud_for_ikalibr in_bag=%s out_bag=%s topic=%s overwrite=%s",
-        in_bag,
-        out_bag,
-        topic,
-        overwrite,
-    )
-    argv = ["--in", in_bag, "--out", out_bag, "--topic", topic]
-    if overwrite:
-        argv.append("--overwrite")
-    argv.extend(["--ring-dtype", ring_dtype])
-    repack_tool.main(argv)
-
-
-def crop_pointcloud_fov(argv: list[str]) -> None:
-    """Run the `scripts/crop_pointcloud_fov.py` helper with the provided argv."""
-    from fruc_ros_utils.bag import crop_pointcloud_fov as crop_tool
-
-    logger.debug("ros1utils crop_pointcloud_fov argv=%s", argv)
-    crop_tool.main(list(argv))
-
-
 def main() -> None:
     """Alias entrypoint so package scripts can point to bag.ros1utils:main"""
-    # Reuse original bag.bagutils main if present
-    # Provide a thin wrapper: intercept the `export_camera_info` subcommand
-    # to call the helper directly; otherwise delegate to the original main.
     argv = sys.argv[1:]
     _reconfigure_logger_from_argv(argv)
     _run_completion(argv)

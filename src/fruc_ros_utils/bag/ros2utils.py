@@ -974,29 +974,6 @@ class Ros2BagUtils:
                 log("LiDAR fields restored successfully")
             except Exception as e:
                 warn(f"Failed to restore LiDAR fields: {e}")
-
-            # After restoring raw ring/fields, repack the PointCloud2 layout to
-            # match iKalibr PCL expectations (field ordering and datatypes).
-            try:
-                # import local helper to run the repack script
-                try:
-                    from fruc_ros_utils.bag.ros1utils import repack_pointcloud_for_ikalibr
-                except Exception:
-                    repack_pointcloud_for_ikalibr = None
-
-                if repack_pointcloud_for_ikalibr is not None:
-                    repacked_path = dst.parent / (dst.stem + "_repacked.bag")
-                    log(f"Repacking PointCloud2 fields into {repacked_path} ...")
-                    repack_pointcloud_for_ikalibr(str(dst), str(repacked_path), lidar_topic, overwrite=True)
-                    # move repacked file over original
-                    import shutil as _sh
-                    _sh.move(str(repacked_path), str(dst))
-                    log("Repacked PointCloud2 fields successfully")
-                else:
-                    warn("Repack helper not available; skipping PointCloud2 layout fix")
-            except Exception as e:
-                warn(f"Repacking PointCloud2 fields failed: {e}")
-
         if remap:
             dst = self._remap_topics(dst, remap)
 
@@ -1969,9 +1946,8 @@ class Ros2BagUtils:
         timestamp (used for bag indexing) against header.stamp in a sample
         of messages from each topic.
 
-        iKalibr uses header.stamp for calibration — if the bag recording time
-        and header.stamp differ by more than ``max_drift_s`` seconds the
-        calibration time window (BeginTime/Duration) will not match the data.
+        If the bag recording time and header.stamp differ by more than
+        ``max_drift_s`` seconds, the data may be misaligned in downstream tools.
         """
         try:
             import rosbag  # available inside the noetic container
@@ -2013,8 +1989,7 @@ class Ros2BagUtils:
                             f"TIMESTAMP DRIFT on '{topic}': mean |bag_time - "
                             f"header.stamp| = {mean_drift:.3f}s  "
                             f"(threshold {max_drift_s}s).  "
-                            f"Adjust BeginTime/Duration in ikalibr-config.yaml "
-                            f"relative to header.stamp, not bag recording time."
+                            f"Adjust downstream time windows relative to header.stamp, not bag recording time."
                         )
                     else:
                         log(f"  ✓ {topic}: timestamp drift {mean_drift:.4f}s ok")
@@ -3424,7 +3399,7 @@ class Ros2BagUtils:
         except ImportError:
             warn(
                 "Topic remapping requires 'rosbag' (ROS 1).  "
-                "Run this step inside the iKalibr Docker container."
+                "Run this step inside a ROS 1 environment."
             )
             return bag_path
 
@@ -3645,7 +3620,7 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
 
     sp = sub.add_parser(
         "convert_to_ros1",
-        help="Convert a ROS 2 bag (.mcap/.db3) to a ROS 1 .bag for use with iKalibr",
+        help="Convert a ROS 2 bag (.mcap/.db3) to a ROS 1 .bag",
     )
     sp.add_argument("--bag", required=True, help="Input ROS 2 bag (.mcap, .db3, or folder)")
     sp.add_argument("--out", default=None, help="Output .bag path (default: <stem>_ros1.bag)")
