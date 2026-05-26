@@ -4,6 +4,7 @@ __pycache__/
 reports/
 reports.*
 output/
+src/bag/
 src/fruc_ros_utils.egg-info/
 *.egg-info/
 .venv/
