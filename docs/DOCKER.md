@@ -33,17 +33,23 @@ Do not run `docker compose run --rm jazzy ...` from inside an already-running co
 
 ## Path Mapping
 
-The ROS compose stack mounts your host bag root at `/bags` inside the container.
+The ROS compose stack mounts your host input bags at `/bags` and output location at `/bags_out` inside the container.
 
 Example:
-- host path: `/mnt/t7_shield/my_session`
-- env var: `BAGS_PATH=/mnt/t7_shield/my_session`
-- container-visible root: `/bags`
-- file inside container: `/bags/run_01.mcap`
+- host input path: `/mnt/t7_shield/my_session`
+- env var: `BAGS_PATH_IN=/mnt/t7_shield/my_session`
+- container input root: `/bags`
+- input file inside container: `/bags/run_01.mcap`
+
+For output paths:
+- host output path: `/mnt/t7_shield/output`
+- env var: `BAGS_PATH_OUT=/mnt/t7_shield/output`
+- container output root: `/bags_out`
+- output file inside container: `/bags_out/run_01_ros1.bag`
 
 That means:
-- host shell sets `BAGS_PATH`
-- CLI arguments passed to `ros2utils` or `ros1utils` should use `/bags/...`
+- host shell sets `BAGS_PATH_IN` (required) and `BAGS_PATH_OUT` (optional)
+- CLI arguments passed to `ros2utils` or `ros1utils` should use `/bags/...` for input and `/bags_out/...` for output
 
 Wrong:
 
@@ -64,7 +70,7 @@ Build the utility images:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose build noetic jazzy
+BAGS_PATH_IN=/path/to/bags_root docker compose build noetic jazzy
 ```
 
 The `jazzy` image installs `rosbags` from PyPI by default:
@@ -75,16 +81,16 @@ Examples:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose build --no-cache jazzy
-BAGS_PATH=/path/to/bags_root ROSBAGS_INSTALL_SPEC='rosbags==0.10.11' docker compose build --no-cache jazzy
-BAGS_PATH=/path/to/bags_root ROSBAGS_INSTALL_SPEC='rosbags==0.10.4' docker compose build --no-cache jazzy
+BAGS_PATH_IN=/path/to/bags_root docker compose build --no-cache jazzy
+BAGS_PATH_IN=/path/to/bags_root ROSBAGS_INSTALL_SPEC='rosbags==0.10.11' docker compose build --no-cache jazzy
+BAGS_PATH_IN=/path/to/bags_root ROSBAGS_INSTALL_SPEC='rosbags==0.10.4' docker compose build --no-cache jazzy
 ```
 
 Check that the CLIs are available:
 
 ```bash
-BAGS_PATH=/path/to/bags_root docker compose run --rm jazzy ros2utils --help
-BAGS_PATH=/path/to/bags_root docker compose run --rm noetic ros1utils --help
+BAGS_PATH_IN=/path/to/bags_root docker compose run --rm jazzy ros2utils --help
+BAGS_PATH_IN=/path/to/bags_root docker compose run --rm noetic ros1utils --help
 ```
 
 ## Typical Host-Shell Commands
@@ -98,7 +104,7 @@ Inspect a ROS 2 bag:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm jazzy \
+BAGS_PATH_IN=/path/to/bags_root docker compose run --rm jazzy \
   ros2utils info --bag /bags/session/run_01.mcap
 ```
 
@@ -106,20 +112,20 @@ Convert one ROS 2 bag to ROS 1:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm jazzy \
+BAGS_PATH_IN=/path/to/bags_root BAGS_PATH_OUT=/path/to/output docker compose run --rm jazzy \
   ros2utils convert_to_ros1 \
     --bag /bags/session/run_01.mcap \
-    --out /bags/session/run_01_ros1.bag
+    --out /bags_out/run_01_ros1.bag
 ```
 
 Convert with time-based chunking:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm jazzy \
+BAGS_PATH_IN=/path/to/bags_root BAGS_PATH_OUT=/path/to/output docker compose run --rm jazzy \
   ros2utils convert_to_ros1 \
     --bag /bags/session/run_01.mcap \
-    --out /bags/session/run_01_ros1/ \
+    --out /bags_out/run_01_ros1/ \
     --split-duration 10m
 ```
 
@@ -129,8 +135,8 @@ Run a ROS 1 command:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm noetic \
-  ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
+BAGS_PATH_IN=/path/to/bags_root BAGS_PATH_OUT=/path/to/output docker compose run --rm noetic \
+  ros1utils calculate_bag_duration --in /bags_out/run_01_ros1.bag --total
 ```
 
 ## If You Are Already Inside a Container
@@ -141,13 +147,13 @@ Inside `jazzy`:
 
 ```bash
 ros2utils list_topics --bag /bags/session/run_01.mcap
-ros2utils convert_to_ros1 --bag /bags/session/run_01.mcap --out /bags/session/run_01_ros1.bag
+ros2utils convert_to_ros1 --bag /bags/session/run_01.mcap --out /bags_out/run_01_ros1.bag
 ```
 
 Inside `noetic`:
 
 ```bash
-ros1utils calculate_bag_duration --in /bags/session/run_01_ros1.bag --total
+ros1utils calculate_bag_duration --in /bags_out/run_01_ros1.bag --total
 ```
 
 ## Common Failure Cases
@@ -160,15 +166,15 @@ Cause:
 Wrong:
 
 ```bash
-cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/mnt/t7_shield/my_session docker compose run --rm jazzy ...
+cd /path/to/other/project
+BAGS_PATH_IN=/mnt/t7_shield/my_session docker compose run --rm jazzy ...
 ```
 
 Right:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/mnt/t7_shield/my_session docker compose run --rm jazzy ...
+BAGS_PATH_IN=/mnt/t7_shield/my_session docker compose run --rm jazzy ...
 ```
 
 ### File not found inside container
