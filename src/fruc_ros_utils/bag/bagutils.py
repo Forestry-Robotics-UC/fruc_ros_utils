@@ -15,55 +15,22 @@
 
 # ===== Standard Library =====
 import argparse
-import csv
 import os
-import signal
 import sys
 import pathlib
-import time
-from collections import deque, defaultdict
-from typing import Callable, Dict, List, Optional, Tuple
-
-# ===== Third-Party Libraries =====
-import numpy as np
-import cv2
-from tqdm import tqdm
-import yaml
-import pandas as pd
-
-# ===== ROS =====
-import rosbag
-import rospy
-from cv_bridge import CvBridge
+from typing import Dict, List, Optional
 
 # ===== Custom Utilities =====
-from fruc_ros_utils.utils.sensor_conversions import imu_ned_to_enu
 from fruc_ros_utils.utils.logging_utils import get_logger
-from fruc_ros_utils.utils.image_utils import demosaic_bayer_ros
-from fruc_ros_utils.utils import image_utils as vutils
-
-# ===== Custom TF / Extrinsics =====
-from fruc_ros_utils.utils.tf_utils import (
-    build_R_cam_imu_per_topic,
-    load_extrinsics_yaml,
-    load_extrinsics_from_urdf,
-)
-
-# ===== Custom Vision / Illumination =====
-from fruc_ros_utils.vision.illumination import IlluminationEnhancer, IlluminationConfig
-from fruc_ros_utils.vision.mapir_ndvi import colorize_ndvi, compute_ndvi_from_bgr, resolve_channels
-from fruc_ros_utils.utils.metrics import vision as vmetrics
+from fruc_ros_utils.utils.tf_utils import load_extrinsics_from_urdf
 
 # ===== Custom NavSat Tools =====
 from fruc_ros_utils.bag.navsat_tools import (
-    export_navsat_to_csv,
-    export_navsat_to_kml,
     extract_navsat_records as _extract_navsat_records,
     navsat_export as _navsat_export,
     navsat_summary as _navsat_summary,
     navsat_report as _navsat_report,
 )
-from fruc_ros_utils.utils.metrics.navsat import cov_metrics
 
 # Module-level logger — handlers and level applied on first RosbagUtils() instantiation.
 logger = get_logger("Bagutils")
@@ -142,7 +109,6 @@ class RosbagUtils:
 
     def __init__(self):
         _configure_module_logger()
-        self.bridge = CvBridge()
 
     def calculate_bag_duration(self, in_path: str, total: bool = False) -> Dict[str, float]:
         return _calc_duration(in_path, total)
