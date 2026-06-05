@@ -55,7 +55,14 @@ from fruc_ros_utils.vision.mapir_ndvi import colorize_ndvi, compute_ndvi_from_bg
 from fruc_ros_utils.utils.metrics import vision as vmetrics
 
 # ===== Custom NavSat Tools =====
-from fruc_ros_utils.bag.navsat_tools import export_navsat_to_csv, export_navsat_to_kml
+from fruc_ros_utils.bag.navsat_tools import (
+    export_navsat_to_csv,
+    export_navsat_to_kml,
+    extract_navsat_records as _extract_navsat_records,
+    navsat_export as _navsat_export,
+    navsat_summary as _navsat_summary,
+    navsat_report as _navsat_report,
+)
 from fruc_ros_utils.utils.metrics.navsat import cov_metrics
 
 # Module-level logger — handlers and level applied on first RosbagUtils() instantiation.
@@ -281,118 +288,16 @@ class RosbagUtils:
                 )
 
     def extract_navsat_records(self, in_path: str, topics: List[str]) -> Dict[str, List[Dict]]:
-        logger.debug("Input=%s topics=%s", in_path, topics)
-        all_records: List[Dict] = []
-        bag_files = _discover_bags(in_path)
-
-        for bag_file in _iter_bags(bag_files, desc="Extracting NavSat"):
-            found_topics = {t: False for t in topics}
-            with rosbag.Bag(bag_file, "r") as bag:
-                for topic, msg, t in _iter_messages(bag, desc=f"NavSat {os.path.basename(bag_file)}", topics=topics):
-                    if "NavSatFix" not in msg._type:
-                        continue
-                    found_topics[topic] = True
-                    cov = list(getattr(msg, "position_covariance", [float("nan")] * 9))
-                    met = cov_metrics(cov)
-                    all_records.append({
-                        "time": t.to_sec(),
-                        "lat": msg.latitude,
-                        "lon": msg.longitude,
-                        "alt": msg.altitude,
-                        "status": int(getattr(msg.status, "status", -999)),
-                        "cov": cov,
-                        **met,
-                    })
-
-            for t, seen in found_topics.items():
-                if not seen:
-                    logger.warning("NavSat topic %s not found in %s", t, bag_file)
-
-            logger.debug("%s → processed, total aggregated=%d", bag_file, len(all_records))
-
-        return {"Aggregated": all_records}
+        return _extract_navsat_records(in_path, topics)
 
     def navsat_export(self, in_path: str, out_dir: str, topics: List[str], csv_name: str = "navsat.csv", kml_name: Optional[str] = None) -> None:
-        logger.debug("Input=%s out_dir=%s topics=%s", in_path, out_dir, topics)
-        out = pathlib.Path(out_dir)
-        out.mkdir(parents=True, exist_ok=True)
-
-        bag_records = self.extract_navsat_records(in_path, topics)
-        for bag_name, records in bag_records.items():
-            if csv_name:
-                csv_file = out / f"{pathlib.Path(bag_name).stem}_{csv_name}"
-                export_navsat_to_csv(records, csv_file)
-                logger.debug("Wrote %s (%d records)", csv_file, len(records))
-            if kml_name:
-                kml_file = out / f"{pathlib.Path(bag_name).stem}_{kml_name}"
-                export_navsat_to_kml(records, kml_file)
-                logger.debug("Wrote %s", kml_file)
+        return _navsat_export(in_path, out_dir, topics, csv_name, kml_name)
 
     def navsat_summary(self, in_path: str, topics: List[str]) -> Dict[str, Dict]:
-        logger.debug("Input=%s topics=%s", in_path, topics)
-        summaries: Dict[str, Dict] = {}
-        bag_records = self.extract_navsat_records(in_path, topics)
-
-        for bag_name, records in bag_records.items():
-            total = len(records)
-            status_counts, r95 = {}, []
-            for r in records:
-                status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
-                if not np.isnan(r["r95_major"]):
-                    r95.append(r["r95_major"])
-            summaries[bag_name] = {
-                "total": total,
-                "status_counts": status_counts,
-                "r95_major_stats": {
-                    "mean": np.mean(r95) if r95 else None,
-                    "max": np.max(r95) if r95 else None,
-                },
-            }
-            logger.debug("%s → %s", bag_name, summaries[bag_name])
-        return summaries
+        return _navsat_summary(in_path, topics)
 
     def navsat_report(self, in_path: str, topics: List[str], report_dir: Optional[str] = None) -> Dict[str, Dict]:
-        logger.debug("Input=%s topics=%s report_dir=%s", in_path, topics, report_dir)
-        try:
-            import pandas as pd
-        except ImportError:
-            logger.error("pandas required for navsat_report")
-            return {}
-
-        reports: Dict[str, Dict] = {}
-        bag_records = self.extract_navsat_records(in_path, topics)
-
-        if report_dir:
-            out_path = pathlib.Path(report_dir)
-            out_path.mkdir(parents=True, exist_ok=True)
-
-        for bag_name, records in bag_records.items():
-            if not records:
-                logger.warning("No NavSat records found in %s", bag_name)
-                continue
-
-            df = pd.DataFrame(records)
-            reports[bag_name] = {
-                "status_distribution": df["status"].value_counts().to_dict(),
-                "r95_major": df["r95_major"].describe().to_dict(),
-                "sigma_h": df["sigma_h"].describe().to_dict(),
-            }
-            logger.debug("%s → keys=%s", bag_name, list(reports[bag_name].keys()))
-
-            # Save to CSV/JSON if report_dir is provided
-            if report_dir:
-                csv_file = out_path / f"{pathlib.Path(bag_name).stem}_navsat_report.csv"
-                json_file = out_path / f"{pathlib.Path(bag_name).stem}_navsat_report.json"
-                try:
-                    df.to_csv(csv_file, index=False)
-                    import json
-                    with open(json_file, "w") as f:
-                        json.dump(reports[bag_name], f, indent=2)
-                    logger.info("Saved NavSat report for %s → %s / %s", bag_name, csv_file, json_file)
-                except Exception as e:
-                    logger.error("Failed to save report for %s: %s", bag_name, e)
-
-        return reports
+        return _navsat_report(in_path, topics, report_dir)
 
     def extract_images(
         self,
