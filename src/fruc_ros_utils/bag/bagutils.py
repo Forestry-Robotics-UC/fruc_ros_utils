@@ -57,10 +57,29 @@ from fruc_ros_utils.utils.metrics import vision as vmetrics
 # ===== Custom NavSat Tools =====
 from fruc_ros_utils.bag.navsat_tools import export_navsat_to_csv, export_navsat_to_kml
 from fruc_ros_utils.utils.metrics.navsat import cov_metrics
-# Allow environment variable override when not run via CLI
-_default_level = os.environ.get("BAGUTILS_LOG_LEVEL", "INFO").upper()
-_default_file  = os.environ.get("BAGUTILS_LOG_FILE", None)
-logger = get_logger("Bagutils", level=_default_level, log_file=_default_file)
+
+# Module-level logger — handlers and level applied on first RosbagUtils() instantiation.
+logger = get_logger("Bagutils")
+
+
+def _configure_module_logger() -> None:
+    """Apply env-var log level / file overrides. Called once from RosbagUtils.__init__."""
+    level = os.environ.get("BAGUTILS_LOG_LEVEL", "INFO").upper()
+    log_file = os.environ.get("BAGUTILS_LOG_FILE", None)
+    import logging
+    logger.setLevel(getattr(logging, level, logging.INFO))
+    if log_file and not any(
+        isinstance(h, logging.FileHandler) and h.baseFilename == log_file
+        for h in logger.handlers
+    ):
+        import logging as _logging
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        fh = _logging.FileHandler(log_file, mode="a")
+        fh.setFormatter(_logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s.%(funcName)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        logger.addHandler(fh)
 
 try:
     import argcomplete
@@ -406,7 +425,7 @@ class RosbagUtils:
     """Utility class for processing ROS bag files."""
 
     def __init__(self):
-        
+        _configure_module_logger()
         self.bridge = CvBridge()
 
     def calculate_bag_duration(self, in_path: str, total: bool = False) -> Dict[str, float]:
