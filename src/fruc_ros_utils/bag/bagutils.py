@@ -89,29 +89,20 @@ except Exception:  # pragma: no cover
 # --------------------------------------------------------------------------- #
 #                                HELPERS                                      #
 # --------------------------------------------------------------------------- #
-def _iter_bags(paths: List[str], desc: str = "Bags"):
-    """Yield bag files with tqdm progress bar."""
-    for bag_path in tqdm(paths, desc=desc, unit="bag"):
-        yield bag_path
-
-def _iter_messages(bag, desc: str, topics: Optional[List[str]] = None, raw: bool = False):
-    """Yield messages from a bag with tqdm progress bar."""
-    total = bag.get_message_count(topic_filters=topics) if not raw else bag.get_message_count()
-    for msg in tqdm(
-        bag.read_messages(topics=topics, raw=raw),
-        total=total,
-        desc=desc,
-        unit="msg",
-        leave=False
-    ):
-        yield msg
-
-def _discover_bags(path: str) -> List[str]:
-    """Return a list of bag files given a file or folder path."""
-    p = pathlib.Path(path)
-    if p.is_dir():
-        return sorted(str(f) for f in p.glob("*.bag*") if f.is_file())
-    return [str(p)]
+from fruc_ros_utils.bag.ros1_bag_ops import (
+    _iter_bags,
+    _iter_messages,
+    _discover_bags,
+    _resolve_out_bag,
+    _resolve_remap_out_bag,
+    calculate_bag_duration as _calc_duration,
+    remove_topic as _remove_topic,
+    remap_topics as _remap_topics,
+    print_topic_sizes as _print_topic_sizes,
+    change_frame_id as _change_frame_id,
+    convert_imu_to_enu as _convert_imu_to_enu,
+    convert_camera_info as _convert_camera_info,
+)
 
 
 def _is_image_datatype(msg_type: str) -> bool:
@@ -238,63 +229,6 @@ def _sanitize_topic_for_path(topic: str) -> str:
     return cleaned.replace("/", "__")
 
 
-def _resolve_out_bag(save_bag: str, bag_path: str, multiple: bool) -> str:
-    """
-    Resolve output bag path.
-    - If save_bag is a directory → put output inside it.
-    - If save_bag is a file → use it (suffix if multiple).
-    Always ensures required directories exist.
-    """
-    sbp = pathlib.Path(save_bag)
-
-    if sbp.suffix == "" or sbp.is_dir():  # directory mode
-        sbp.mkdir(parents=True, exist_ok=True)
-        name = f"{pathlib.Path(bag_path).stem}{'_corrected' if multiple else ''}.bag"
-        out_path = sbp / name
-    else:  # file mode
-        out_path = (
-            sbp.parent / f"{pathlib.Path(bag_path).stem}_corrected.bag"
-            if multiple else sbp
-        )
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    logger.debug("Resolved output path: %s (save_bag=%s, multiple=%s)", out_path, save_bag, multiple)
-    return str(out_path)
-
-
-def _resolve_remap_out_bag(
-    save_bag: Optional[str],
-    bag_path: str,
-    multiple: bool,
-    overwrite: bool,
-) -> str:
-    """Resolve the output path for topic-remapping operations."""
-    bag_path_obj = pathlib.Path(bag_path)
-
-    if overwrite and not save_bag:
-        return str(bag_path_obj)
-
-    if save_bag is None:
-        if multiple:
-            out_dir = bag_path_obj.parent / f"{bag_path_obj.name}_remapped"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            return str(out_dir / f"{bag_path_obj.stem}_remapped.bag")
-        return str(bag_path_obj.with_name(f"{bag_path_obj.stem}_remapped.bag"))
-
-    sbp = pathlib.Path(save_bag)
-    if multiple:
-        if sbp.suffix and not sbp.is_dir():
-            raise ValueError("remap_topics output must be a directory when remapping multiple bags")
-        sbp.mkdir(parents=True, exist_ok=True)
-        return str(sbp / f"{bag_path_obj.stem}_remapped.bag")
-
-    if sbp.suffix and not sbp.is_dir():
-        sbp.parent.mkdir(parents=True, exist_ok=True)
-        return str(sbp)
-
-    sbp.mkdir(parents=True, exist_ok=True)
-    return str(sbp / f"{bag_path_obj.stem}_remapped.bag")
-
 
 def _load_extrinsics(
     bagfiles: List[str],
@@ -336,201 +270,27 @@ class RosbagUtils:
         self.bridge = CvBridge()
 
     def calculate_bag_duration(self, in_path: str, total: bool = False) -> Dict[str, float]:
-        logger.debug("Input=%s total=%s", in_path, total)
-        results: Dict[str, float] = {}
-        bag_files = _discover_bags(in_path)
-
-        for bag_path in _iter_bags(bag_files, desc="Calculating durations"):
-            try:
-                with rosbag.Bag(bag_path, "r") as bag:
-                    duration = bag.get_end_time() - bag.get_start_time()
-                fname = os.path.basename(bag_path)
-                logger.debug("Duration=%.2fs", duration)
-                results[fname] = duration
-            except Exception as e:
-                logger.error("Failed for %s: %s", bag_path, e)
-
-        if total and results:
-            total_dur = sum(results.values())
-            logger.info("Total duration across %d bags: %.2f s", len(results), total_dur)
-            results["__Total__"] = total_dur
-            logger.debug("Total=%.2fs", total_dur)
-
-        return results
+        return _calc_duration(in_path, total)
 
     def remove_topic(self, in_path: str, out_path: str, topics: List[str]) -> None:
-        logger.debug("Input=%s out=%s topics=%s", in_path, out_path, topics)
-        bag_files = _discover_bags(in_path)
-        multiple = len(bag_files) > 1
-
-        for bag_file in _iter_bags(bag_files, desc="Removing topics"):
-            out_bag_file = _resolve_out_bag(out_path, bag_file, multiple)
-            removed_any = False  # track if any topic was actually removed
-
-            with rosbag.Bag(out_bag_file, "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                for topic, msg, t in _iter_messages(in_bag, desc=f"Filtering {os.path.basename(bag_file)}"):
-                    if topic not in topics:
-                        out_bag.write(topic, msg, t)
-                    else:
-                        removed_any = True
-
-            if removed_any:
-                logger.info("Wrote cleaned bag to %s (removed topics: %s)", out_bag_file, topics)
-            else:
-                logger.warning("No matching topics %s found in %s. Output identical to input.", topics, bag_file)
+        return _remove_topic(in_path, out_path, topics)
 
 
     def remap_topics(self, in_path: str, out_path: Optional[str], remap: Dict[str, str], overwrite: bool = False) -> None:
-        logger.debug("Input=%s out=%s remap=%s overwrite=%s", in_path, out_path, remap, overwrite)
-        if not remap:
-            raise ValueError("remap_topics requires at least one OLD:NEW mapping")
-
-        bag_files = _discover_bags(in_path)
-        multiple = len(bag_files) > 1
-
-        for bag_file in _iter_bags(bag_files, desc="Remapping topics"):
-            out_bag_file = _resolve_remap_out_bag(out_path, bag_file, multiple, overwrite)
-            out_bag_path = pathlib.Path(out_bag_file)
-            temp_out_path = None
-            remapped_messages = 0
-
-            if not overwrite and out_bag_path.exists():
-                raise FileExistsError(
-                    f"Output bag already exists: {out_bag_file} (use --overwrite to replace it)"
-                )
-
-            if overwrite and out_bag_path.resolve() == pathlib.Path(bag_file).resolve():
-                temp_out_path = out_bag_path.with_name(f"{out_bag_path.stem}.__remap_tmp__.bag")
-                target_path = temp_out_path
-            else:
-                target_path = out_bag_path
-
-            with rosbag.Bag(str(target_path), "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                remapped_messages = 0
-                for topic, msg, t in _iter_messages(in_bag, desc=f"Remapping {os.path.basename(bag_file)}"):
-                    new_topic = remap.get(topic, topic)
-                    if new_topic != topic:
-                        remapped_messages += 1
-                    out_bag.write(new_topic, msg, t)
-
-            if temp_out_path is not None:
-                os.replace(str(temp_out_path), str(out_bag_path))
-
-            if remapped_messages:
-                logger.info("Wrote remapped bag to %s (remapped %d message(s))", out_bag_file, remapped_messages)
-            else:
-                logger.warning("No matching remap topics found in %s. Output identical to input.", bag_file)
+        return _remap_topics(in_path, out_path, remap, overwrite)
 
 
     def print_topic_sizes(self, in_path: str) -> Dict[str, Dict[str, int]]:
-        logger.debug("Input=%s", in_path)
-        results: Dict[str, Dict[str, int]] = {}
-        totals: Dict[str, int] = defaultdict(int)
-        bag_files = _discover_bags(in_path)
-
-        for bag_file in _iter_bags(bag_files, desc="Topic sizes"):
-                sizes: Dict[str, int] = defaultdict(int)
-                with rosbag.Bag(bag_file, "r") as bag:
-                    for topic, msg, _ in _iter_messages(
-                        bag, desc=f"Sizes {os.path.basename(bag_file)}", raw=True
-                    ):
-                        sizes[topic] += len(msg[1])
-                        totals[topic] += len(msg[1])
-
-                results[os.path.basename(bag_file)] = dict(sizes)
-                logger.debug("%s → %s", bag_file, sizes.keys())
-                for topic, size in sorted(sizes.items(), key=lambda x: x[1]):
-                    logger.info("%s: %.2f MB (%.4f GB)", topic, size / 1e6, size / 1e9)
-
-        if totals:
-            total_topics = dict(totals)
-            logger.info("Totals across %d bags:", len(results))
-            for topic, size in sorted(total_topics.items(), key=lambda x: x[1], reverse=True):
-                logger.info("TOTAL %s: %.2f MB (%.4f GB)", topic, size / 1e6, size / 1e9)
-            results["__Totals__"] = total_topics
-
-        return results
+        return _print_topic_sizes(in_path)
 
     def change_frame_id(self, in_path: str, out_path: str, topics: List[str], new_frame_id: str) -> None:
-        logger.debug("Input=%s topics=%s new_frame_id=%s", in_path, topics, new_frame_id)
-        bag_files = _discover_bags(in_path)
-        multiple = len(bag_files) > 1
-
-        for bag_file in _iter_bags(bag_files, desc="Changing frame_id"):
-            out_bag_file = _resolve_out_bag(out_path, bag_file, multiple) if multiple else out_path
-            with rosbag.Bag(out_bag_file, "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                for topic, msg, t in _iter_messages(in_bag, desc=f"FrameID {os.path.basename(bag_file)}", topics=topics):
-                    if hasattr(msg, "header") and hasattr(msg.header, "frame_id") and topic in topics:
-                        logger.debug("Change frame  %s → %s", msg.header.frame_id, new_frame_id)
-                        msg.header.frame_id = new_frame_id
-
-
-                    out_bag.write(topic, msg, t)
-            logger.info("Updated frame_id for %s → %s in %s", topics, new_frame_id, out_bag_file)
+        return _change_frame_id(in_path, out_path, topics, new_frame_id)
 
     def convert_imu_to_enu(self, in_path: str, out_path: str, topics: List[str]) -> None:
-        logger.debug("Input=%s out=%s topics=%s", in_path, out_path, topics)
-        bag_files = _discover_bags(in_path)
-        multiple = len(bag_files) > 1
-
-        for bag_file in _iter_bags(bag_files, desc="Converting IMU"):
-            out_bag_file = _resolve_out_bag(out_path, bag_file, multiple) if multiple else out_path
-            found_topics = {t: False for t in topics}  # track which IMU topics were seen
-
-            with rosbag.Bag(out_bag_file, "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                for topic, msg, t in _iter_messages(in_bag, desc=f"IMU {os.path.basename(bag_file)}"):
-                    if topic in topics and "Imu" in getattr(msg, "_type", ""):
-                        found_topics[topic] = True
-                        out_bag.write(topic, imu_ned_to_enu(msg), t)
-                    else:
-                        out_bag.write(topic, msg, t)
-
-            # Report results
-            for imu_topic, seen in found_topics.items():
-                if seen:
-                    logger.info("Converted IMU topic %s from NED → ENU in %s → %s",
-                                imu_topic, bag_file, out_bag_file)
-                else:
-                    logger.warning("IMU topic %s not found in %s. Output unchanged for that topic.",
-                                   imu_topic, bag_file)
+        return _convert_imu_to_enu(in_path, out_path, topics)
 
     def convert_camera_info(self, in_path: str, out_path: str, topics: Optional[List[str]] = None) -> None:
-        logger.debug("Input=%s out=%s topics=%s", in_path, out_path, topics)
-        bag_files = _discover_bags(in_path)
-        multiple = len(bag_files) > 1
-
-        for bag_file in _iter_bags(bag_files, desc="Converting CameraInfo"):
-            out_bag_file = _resolve_out_bag(out_path, bag_file, multiple) if multiple else out_path
-            converted_topics = set()
-
-            with rosbag.Bag(out_bag_file, "w") as out_bag, rosbag.Bag(bag_file, "r") as in_bag:
-                cam_topics = topics or _discover_camera_info_topics(in_bag)
-                if not cam_topics:
-                    logger.warning("No camera_info topics found in %s", bag_file)
-
-                for topic, msg, t in _iter_messages(in_bag, desc=f"CameraInfo {os.path.basename(bag_file)}"):
-                    if cam_topics and topic in cam_topics:
-                        try:
-                            mtype = getattr(msg, "_type", "")
-                            if mtype and "CameraInfo" not in mtype:
-                                logger.warning("Topic %s in %s is not CameraInfo (type=%s). Writing original.",
-                                               topic, bag_file, mtype)
-                                out_bag.write(topic, msg, t)
-                                continue
-                            out_bag.write(topic, _convert_camera_info_msg(msg), t)
-                            converted_topics.add(topic)
-                        except Exception as e:
-                            logger.warning("Failed to convert %s in %s: %s. Writing original.",
-                                           topic, bag_file, e)
-                            out_bag.write(topic, msg, t)
-                    else:
-                        out_bag.write(topic, msg, t)
-
-            if cam_topics:
-                missing = [t for t in cam_topics if t not in converted_topics]
-                if missing:
-                    logger.warning("CameraInfo topics not found in %s: %s", bag_file, missing)
-            logger.info("Wrote converted bag to %s", out_bag_file)
+        return _convert_camera_info(in_path, out_path, topics)
 
     def mapir_ndvi(
         self,
