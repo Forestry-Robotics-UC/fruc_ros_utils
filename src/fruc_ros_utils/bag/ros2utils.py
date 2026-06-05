@@ -48,6 +48,11 @@ import rclpy.serialization
 import numpy as np
 from sensor_msgs.msg import PointCloud2
 
+from fruc_ros_utils.bag import ros2_inspector as _insp
+from fruc_ros_utils.bag import ros2_topic_filter as _tfilter
+from fruc_ros_utils.bag import ros2_validation as _valid
+from fruc_ros_utils.bag import ouster_conv_helpers as _ouster
+
 from fruc_ros_utils.bag._ros2_helpers import (
     _ROS2_MSG_TYPE_SEPARATOR,
     _SIZE_SUFFIXES,
@@ -96,399 +101,56 @@ class Ros2BagUtils:
 
     # ---------- internal helpers ----------
     def _open_reader(self, path: str):
-        """Return an opened SequentialReader for a .mcap, .db3 bag or folder."""
-        if rosbag2_py is None:
-            raise RuntimeError(
-                "rosbag2_py is required in this environment to read ROS 2 bags. "
-                "Use the jazzy container/image."
-            )
-        bag_path = Path(path)
-        logger.debug("Opening ROS2 reader for %s", _debug_path_state(bag_path))
-        if bag_path.is_dir():
-            # rosbag2 split format — let rosbag2_py handle directory directly
-            storage_id = ""
-            uri = str(bag_path)
-        else:
-            ext = bag_path.suffix.lower()
-            storage_id = {".mcap": "mcap", ".db3": "sqlite3"}.get(ext, "")
-            uri = str(bag_path)
-
-        storage_ids = [storage_id]
-        if storage_id == "mcap":
-            # Some corrupted MCAPs fail strict metadata parsing when forced to mcap.
-            # Retry with autodetect as a best-effort fallback.
-            storage_ids.append("")
-
-        last_error: Optional[Exception] = None
-        for candidate_storage_id in storage_ids:
-            storage = rosbag2_py.StorageOptions(uri=uri, storage_id=candidate_storage_id)
-            converter = rosbag2_py.ConverterOptions("", "")
-            reader = rosbag2_py.SequentialReader()
-            logger.debug(
-                "Trying rosbag2_py.SequentialReader.open uri=%s storage_id=%r",
-                uri,
-                candidate_storage_id,
-            )
-            try:
-                reader.open(storage, converter)
-                self._debug_log_opened_ros2_reader(
-                    reader,
-                    bag_path,
-                    context=f"Opened ROS2 reader with storage_id={candidate_storage_id!r}",
-                )
-                return reader
-            except Exception as e:  # noqa: BLE001
-                last_error = e
-                logger.debug(
-                    "SequentialReader open failed for %s with storage_id=%r: %s",
-                    path,
-                    candidate_storage_id,
-                    e,
-                    exc_info=True,
-                )
-                continue
-
-        raise RuntimeError(f"Failed to open ROS2 reader for {bag_path}: {last_error}")
+        return _insp.open_ros2_reader(path)
 
     @staticmethod
     def _ensure_ros1_tf2_typestore(dst_store) -> None:
-        """Register tf2_msgs/TFMessage in ROS1 typestores that do not bundle it."""
-        if dst_store is None:
-            return
-        store_types = getattr(dst_store, "types", None)
-        if isinstance(store_types, dict) and "tf2_msgs/msg/TFMessage" in store_types:
-            return
-        try:
-            from rosbags.typesys import get_types_from_msg
-
-            tf_msgdef = "geometry_msgs/TransformStamped[] transforms\n"
-            dst_store.register(get_types_from_msg(tf_msgdef, "tf2_msgs/msg/TFMessage"))
-            logger.debug("Registered missing ROS1 typestore definition for tf2_msgs/msg/TFMessage")
-        except Exception:
-            logger.debug(
-                "Failed to register tf2_msgs/msg/TFMessage in ROS1 typestore",
-                exc_info=True,
-            )
+        return _insp._ensure_ros1_tf2_typestore(dst_store)
 
     @staticmethod
     def _cleanup_partial_output(dst_path: Union[str, Path], context: str = "") -> None:
-        """Remove a partially created output path left behind by a failed conversion attempt."""
-        dst = Path(dst_path)
-        if not dst.exists():
-            return
-        try:
-            if dst.is_dir():
-                shutil.rmtree(dst)
-            else:
-                dst.unlink()
-            logger.debug(
-                "Removed partial conversion output %s%s",
-                dst,
-                f" after {context}" if context else "",
-            )
-        except Exception:
-            logger.debug(
-                "Failed to remove partial conversion output %s%s",
-                dst,
-                f" after {context}" if context else "",
-                exc_info=True,
-            )
+        return _insp._cleanup_partial_output(dst_path, context)
 
     @staticmethod
     def _debug_log_topic_descriptions(context: str, topics: List[object], limit: int = 20) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
-            return
-        logger.debug("%s: topic_count=%d", context, len(topics))
-        for topic in topics[:limit]:
-            logger.debug(
-                "%s: topic=%s type=%s serialization=%s",
-                context,
-                getattr(topic, "name", "<unknown>"),
-                getattr(topic, "type", "<unknown>"),
-                getattr(topic, "serialization_format", "<unknown>"),
-            )
-        if len(topics) > limit:
-            logger.debug("%s: topic list truncated after %d entries", context, limit)
+        return _insp._debug_log_topic_descriptions(context, topics, limit)
 
     def _debug_log_opened_ros2_reader(self, reader, path: Union[str, Path], context: str) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
-            return
-        logger.debug("%s: %s", context, _debug_path_state(path))
-        try:
-            topics = list(reader.get_all_topics_and_types())
-        except Exception:
-            logger.debug("%s: failed to enumerate topics", context, exc_info=True)
-            topics = []
-        else:
-            self._debug_log_topic_descriptions(context, topics)
-
-        get_metadata = getattr(reader, "get_metadata", None)
-        if not callable(get_metadata):
-            return
-        try:
-            metadata = get_metadata()
-            logger.debug(
-                "%s: metadata storage=%r duration=%r message_count=%r relative_files=%r",
-                context,
-                getattr(metadata, "storage_identifier", None),
-                getattr(getattr(metadata, "duration", None), "nanoseconds", None),
-                getattr(metadata, "message_count", None),
-                getattr(metadata, "relative_file_paths", None),
-            )
-        except Exception:
-            logger.debug("%s: failed to read rosbag2 metadata", context, exc_info=True)
+        return _insp._debug_log_opened_ros2_reader(reader, path, context)
 
     def _debug_log_ros2_bag_summary(self, bag_path: Union[str, Path], context: str) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
-            return
-        try:
-            reader = self._open_reader(str(bag_path))
-        except Exception:
-            logger.debug(
-                "%s: unable to open ROS2 bag for debug summary: %s",
-                context,
-                _debug_path_state(bag_path),
-                exc_info=True,
-            )
-            return
-
-        try:
-            self._debug_log_opened_ros2_reader(reader, bag_path, context)
-        finally:
-            close_reader = getattr(reader, "close", None)
-            if callable(close_reader):
-                close_reader()
+        return _insp._debug_log_ros2_bag_summary(bag_path, context)
 
     @staticmethod
     def _debug_log_subprocess_result(context: str, cmd: List[str], result: subprocess.CompletedProcess) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
-            return
-        logger.debug("%s: returncode=%s cmd=%s", context, result.returncode, cmd)
-        stdout = (result.stdout or "").strip()
-        stderr = (result.stderr or "").strip()
-        if stdout:
-            logger.debug("%s stdout:\n%s", context, stdout)
-        if stderr:
-            logger.debug("%s stderr:\n%s", context, stderr)
+        return _insp._debug_log_subprocess_result(context, cmd, result)
 
     @staticmethod
     def _resolve_rosbags_typestore(typestore: object):
-        """Resolve a typestore name like ``ros2_jazzy`` to a rosbags typestore object.
-
-        This resolver accepts repo-facing aliases such as ``ros2_jazzy`` even when
-        the installed rosbags release does not ship that exact store. In that case
-        it falls back to the nearest compatible ROS2/ROS1 store available in the
-        current ``rosbags.typesys.Stores`` enum.
-        """
-        if not isinstance(typestore, str):
-            return typestore
-
-        try:
-            from rosbags.typesys import Stores, get_typestore
-        except ImportError as exc:
-            raise RuntimeError(f"rosbags.typesys is required to resolve typestore '{typestore}': {exc}") from exc
-
-        normalized = typestore.strip().replace("-", "_").replace(" ", "_")
-        members = getattr(Stores, "__members__", {})
-
-        alias_candidates = {
-            "ros2_jazzy": ["ros2_jazzy", "ros2_iron", "ros2_humble", "ros2_galactic", "ros2_foxy"],
-            "ros2_iron": ["ros2_iron", "ros2_humble", "ros2_galactic", "ros2_foxy"],
-            "ros2_humble": ["ros2_humble", "ros2_galactic", "ros2_foxy"],
-            "ros1_noetic": ["ros1_noetic"],
-        }
-
-        for candidate in (normalized, normalized.upper(), normalized.lower()):
-            if candidate in members:
-                return get_typestore(members[candidate])
-            attr = getattr(Stores, candidate, None)
-            if attr is not None:
-                return get_typestore(attr)
-
-        for alias in alias_candidates.get(normalized.lower(), []):
-            for candidate in (alias, alias.upper(), alias.lower()):
-                if candidate in members:
-                    logger.warning(
-                        "rosbags typestore '%s' is unavailable; falling back to '%s'.",
-                        typestore,
-                        candidate,
-                    )
-                    return get_typestore(members[candidate])
-                attr = getattr(Stores, candidate, None)
-                if attr is not None:
-                    logger.warning(
-                        "rosbags typestore '%s' is unavailable; falling back to '%s'.",
-                        typestore,
-                        candidate,
-                    )
-                    return get_typestore(attr)
-
-        for name, store in members.items():
-            if name.lower() == normalized.lower():
-                return get_typestore(store)
-
-        raise ValueError(f"Unknown rosbags typestore: {typestore}")
+        return _insp._resolve_rosbags_typestore(typestore)
 
     # ---------- actions ----------
     def list_topics(self, bag_path: str) -> Dict[str, str]:
-        reader = self._open_reader(bag_path)
-        topics = reader.get_all_topics_and_types()
-        out = {t.name: t.type for t in topics}
-        for name, ttype in out.items():
-            logger.info("%-60s %s", name, ttype)
-        return out
+        return _insp.list_topics(bag_path)
 
     @staticmethod
     def _bag_size_bytes_raw(bag_path: Union[str, Path]) -> int:
-        bag = Path(bag_path)
-        if bag.is_file():
-            return int(bag.stat().st_size)
-        if bag.is_dir():
-            return int(sum(path.stat().st_size for path in bag.rglob("*") if path.is_file()))
-        raise FileNotFoundError(f"Bag not found: {bag}")
+        return _insp.bag_size_bytes_raw(bag_path)
 
     def _ros2_bag_info_metadata(self, bag_path: str) -> Dict[str, object]:
-        bag = Path(bag_path).resolve()
-        if bag.is_dir():
-            metadata_path = bag / "metadata.yaml"
-            if metadata_path.exists():
-                with metadata_path.open("r", encoding="utf-8") as handle:
-                    metadata = yaml.safe_load(handle) or {}
-                if isinstance(metadata, dict):
-                    return metadata
-                raise RuntimeError(
-                    f"Unexpected rosbag2 metadata format in {metadata_path}: "
-                    f"expected dict, got {type(metadata).__name__}"
-                )
-        return self._single_file_rosbag2_metadata(str(bag))
+        return _insp._ros2_bag_info_metadata(bag_path)
 
     def info(self, bag_path: str) -> Dict[str, object]:
-        """Summarize a ROS 2 bag for offline conversion planning."""
-        src = Path(bag_path).resolve()
-        if not src.exists():
-            raise FileNotFoundError(f"Bag not found: {src}")
-
-        metadata = self._ros2_bag_info_metadata(str(src))
-        bag_info = metadata.get("rosbag2_bagfile_information", {}) if isinstance(metadata, dict) else {}
-        storage_id = str(bag_info.get("storage_identifier") or self._storage_id_for_bag(str(src)))
-        duration_ns = int((bag_info.get("duration") or {}).get("nanoseconds", 0) or 0)
-        duration_s = duration_ns / 1e9
-        message_count = int(bag_info.get("message_count", 0) or 0)
-        size_bytes = self._bag_size_bytes_raw(src)
-        relative_files = list(bag_info.get("relative_file_paths") or [])
-        compression_format = str(bag_info.get("compression_format") or "")
-        compression_mode = str(bag_info.get("compression_mode") or "")
-
-        topics = []
-        for entry in bag_info.get("topics_with_message_count", []) or []:
-            topic_metadata = entry.get("topic_metadata", {}) or {}
-            topic_name = str(topic_metadata.get("name") or "")
-            topic_type = str(topic_metadata.get("type") or "")
-            topic_message_count = int(entry.get("message_count", 0) or 0)
-            topics.append(
-                {
-                    "name": topic_name,
-                    "type": topic_type,
-                    "message_count": topic_message_count,
-                    "standard_type": _is_standard_ros_msg_type(topic_type),
-                }
-            )
-
-        topics.sort(key=lambda item: item["name"])
-        custom_topics = [topic for topic in topics if not topic["standard_type"]]
-
-        log(f"Bag: {src}")
-        log(f"Storage: {storage_id}")
-        log(f"Size: {size_bytes} bytes ({_format_bytes(size_bytes)})")
-        log(f"Duration: {duration_s:.3f} s")
-        log(f"Messages: {message_count}")
-        log(f"Topics: {len(topics)}")
-        if relative_files:
-            log(f"Relative files: {', '.join(relative_files)}")
-        if compression_format or compression_mode:
-            log(
-                "Compression: format=%s mode=%s",
-                compression_format or "<none>",
-                compression_mode or "<none>",
-            )
-
-        for topic in topics:
-            logger.info(
-                "%-60s %-40s %10d %s",
-                topic["name"],
-                topic["type"],
-                topic["message_count"],
-                "" if topic["standard_type"] else "[custom]",
-            )
-
-        if custom_topics:
-            warn(
-                "Custom or non-standard ROS2 topics detected: %s",
-                ", ".join(topic["name"] for topic in custom_topics),
-            )
-            warn(
-                "Start conversion with only standard-message topics or provide matching custom definitions."
-            )
-
-        return {
-            "path": str(src),
-            "storage_identifier": storage_id,
-            "size_bytes": size_bytes,
-            "duration_seconds": duration_s,
-            "message_count": message_count,
-            "relative_file_paths": relative_files,
-            "compression_format": compression_format,
-            "compression_mode": compression_mode,
-            "topics": topics,
-            "custom_topics": [topic["name"] for topic in custom_topics],
-        }
+        return _insp.info(bag_path)
 
     def bag_duration(self, bag_path: str) -> float:
-        """Compute duration directly from SQLite timestamps."""
-        db3 = Path(bag_path)
-        if db3.is_dir():
-            db3 = next(db3.glob("*.db3"))
-        conn = sqlite3.connect(db3)
-        cur = conn.cursor()
-        cur.execute("SELECT MIN(timestamp), MAX(timestamp) FROM messages;")
-        start, end = cur.fetchone()
-        conn.close()
-        if not start or not end:
-            warn("No messages found in bag")
-            return 0.0
-        dur = (end - start) / 1e9
-        log(f"Duration: {dur:.3f} s")
-        return dur
+        return _insp.bag_duration(bag_path)
 
     def bag_size_bytes(self, bag_path: str) -> int:
-        """Compute bag size in bytes for a ROS 2 bag file or directory."""
-        total = self._bag_size_bytes_raw(bag_path)
-        log(f"Size: {total} bytes ({_format_bytes(total)})")
-        return int(total)
+        return _insp.bag_size_bytes(bag_path)
 
     def _ensure_output_available(self, dst_path: str, overwrite: bool) -> None:
-        """
-        Ensure destination path can be created.
-        
-        If the destination exists and overwrite is False, raise.
-        If overwrite is True, remove the path first (file or directory).
-        """
-        dst = Path(dst_path)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if not dst.exists():
-            return
-        if not overwrite:
-            raise FileExistsError(
-                f"Output path '{dst}' exists. Use --overwrite to replace it."
-            )
-        try:
-            if dst.is_dir():
-                shutil.rmtree(dst)
-            else:
-                dst.unlink()
-            logger.debug("Removed existing output path for overwrite: %s", dst)
-        except Exception as e:
-            raise RuntimeError(f"Unable to clear existing output path '{dst}': {e}")
+        return _insp.ensure_output_available(dst_path, overwrite)
 
     # ---------- ROS2 → ROS1 conversion ----------
     def convert_to_ros1(
@@ -815,58 +477,13 @@ class Ros2BagUtils:
         return sorted(chunks, key=_natural_sort_key)
 
     def _storage_id_for_bag(self, bag_path: str) -> str:
-        bag = Path(bag_path)
-        if bag.is_file():
-            storage_id = {".mcap": "mcap", ".db3": "sqlite3"}.get(bag.suffix.lower(), "")
-            if storage_id:
-                return storage_id
-
-        reader = self._open_reader(bag_path)
-        metadata = reader.get_metadata()
-        storage_id = getattr(metadata, "storage_identifier", "") or ""
-        if storage_id:
-            return storage_id
-
-        raise RuntimeError(f"Could not determine storage backend for bag: {bag_path}")
+        return _insp._storage_id_for_bag(bag_path)
 
     def _existing_split_member_sources(self, bag_path: str) -> List[Path]:
-        """Return the concrete member files for a directory-backed split rosbag2 source."""
-        src = Path(bag_path).resolve()
-        if not src.is_dir():
-            return [src]
-
-        metadata = self._ros2_bag_info_metadata(str(src))
-        bag_info = metadata.get("rosbag2_bagfile_information", {}) if isinstance(metadata, dict) else {}
-        file_entries = list(bag_info.get("files") or [])
-        if len(file_entries) <= 1:
-            return [src]
-        members: List[Path] = []
-
-        for file_entry in file_entries:
-            rel_name = str(file_entry.get("path") or "")
-            if not rel_name:
-                continue
-            source_member = src / rel_name
-            if not source_member.exists():
-                logger.debug("Skipping missing split member %s from %s", source_member, src)
-                continue
-            members.append(source_member)
-
-        return members or [src]
+        return _insp._existing_split_member_sources(bag_path)
 
     def _existing_split_member_count(self, bag_path: str) -> int:
-        src = Path(bag_path).resolve()
-        if not src.is_dir():
-            return 0
-        metadata = self._ros2_bag_info_metadata(str(src))
-        bag_info = metadata.get("rosbag2_bagfile_information", {}) if isinstance(metadata, dict) else {}
-        file_entries = list(bag_info.get("files") or [])
-        existing = 0
-        for file_entry in file_entries:
-            rel_name = str(file_entry.get("path") or "")
-            if rel_name and (src / rel_name).exists():
-                existing += 1
-        return existing
+        return _insp._existing_split_member_count(bag_path)
 
     def _split_ros2_bag(
         self,
@@ -1160,101 +777,16 @@ class Ros2BagUtils:
         return produced
 
     def _restore_lidar_fields_from_mcap(self, mcap_path: str, bag_path: str, topic: str) -> None:
-        """
-        Extract custom LiDAR fields (ring, reflectivity) from MCAP and inject into ROS1 bag.
-        """
-        if not HAS_ROSBAG2:
-            warn("rosbag2_py not available; skipping LiDAR field restoration")
-            return
+        return _ouster._restore_lidar_fields_from_mcap(mcap_path, bag_path, topic)
 
-        try:
-            import rosbag
-            from sensor_msgs.msg import PointField
-        except ImportError:
-            warn("rosbag not available; skipping LiDAR field restoration")
-            return
-
-        # Extract ring field from MCAP
-        storage = rosbag2_py.StorageOptions(uri=mcap_path, storage_id="mcap")
-        converter = rosbag2_py.ConverterOptions("", "")
-        reader = rosbag2_py.SequentialReader()
-        reader.open(storage, converter)
-
-        topics_map = {t.name: t.type for t in reader.get_all_topics_and_types()}
-        if topic not in topics_map:
-            warn(f"Topic '{topic}' not found in MCAP")
-            return
-
-        ring_arrays = []
-        while reader.has_next():
-            topic_name, data, _ = reader.read_next()
-            if topic_name != topic:
-                continue
-            try:
-                msg = rclpy.serialization.deserialize_message(
-                    data, PointCloud2
-                )
-                for field in msg.fields:
-                    if field.name == "ring":
-                        num_points = len(msg.data) // msg.point_step
-                        ring_data = np.frombuffer(
-                            msg.data, dtype=np.uint16, count=num_points, offset=field.offset
-                        )
-                        ring_arrays.append(ring_data.copy())
-                        break
-            except Exception:
-                continue
-
-        if not ring_arrays:
-            warn(f"No ring field found in MCAP topic '{topic}'")
-            return
-
-        logger.debug("Extracted %d ring arrays from MCAP topic '%s'", len(ring_arrays), topic)
-
-        # Inject ring field into ROS1 bag
-        ring_idx = 0
-        in_bag = rosbag.Bag(bag_path, "r")
-        temp_bag_path = bag_path + ".tmp"
-        out_bag = rosbag.Bag(temp_bag_path, "w")
-
-        for in_topic, msg, t in in_bag.read_messages():
-            if in_topic == topic and hasattr(msg, "fields") and ring_idx < len(ring_arrays):
-                has_ring = any(f.name == "ring" for f in msg.fields)
-                if not has_ring:
-                    ring_field = PointField(
-                        name="ring",
-                        offset=msg.point_step,
-                        datatype=PointField.UINT16,
-                        count=1,
-                    )
-                    msg.fields.append(ring_field)
-                    msg.point_step += 2
-                    ring_bytes = ring_arrays[ring_idx].tobytes()
-                    msg.data += ring_bytes
-                    msg.row_step = msg.width * msg.point_step
-                    ring_idx += 1
-            out_bag.write(in_topic, msg, t)
-
-        in_bag.close()
-        out_bag.close()
-
-        # Replace original with updated bag
-        import shutil as sh
-        sh.move(temp_bag_path, bag_path)
-
+    @staticmethod
     @staticmethod
     def _topic_selected(
         topic_name: str,
         include_topics: Optional[List[str]] = None,
         exclude_topics: Optional[List[str]] = None,
     ) -> bool:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        if include_set and topic_name not in include_set:
-            return False
-        if topic_name in exclude_set:
-            return False
-        return True
+        return _tfilter._topic_selected(topic_name, include_topics, exclude_topics)
 
     def _convert_single_to_ros1_with_ouster_decode(
         self,
@@ -1695,148 +1227,16 @@ class Ros2BagUtils:
 
 
     def _warn_custom_types(self, bag_path: str) -> None:
-        """
-        Inspect the bag's topic types and warn about any that are NOT in the
-        standard ROS typestore (e.g. Livox, custom radar, SBG IMU).
-        These will be copied as raw bytes without field conversion.
-        """
-        try:
-            reader = self._open_reader(bag_path)
-            topics = reader.get_all_topics_and_types()
-            for t in topics:
-                if not _is_standard_ros_msg_type(t.type):
-                    warn(
-                        f"Custom type '{t.type}' on topic '{t.name}' is not in "
-                        f"the standard ROS1 typestore — it will be excluded from "
-                        f"ROS1 conversion unless a custom bridge registers an "
-                        f"explicit ROS1 definition and md5sum for it."
-                    )
-        except Exception as e:
-            warn(f"Could not pre-check types: {e}")
+        return _valid._warn_custom_types(bag_path)
 
     def _validate_timestamps(self, bag_path: str, max_drift_s: float = 1.0) -> None:
-        """
-        Open the converted ROS1 bag with rosbag and compare the recording
-        timestamp (used for bag indexing) against header.stamp in a sample
-        of messages from each topic.
-
-        If the bag recording time and header.stamp differ by more than
-        ``max_drift_s`` seconds, the data may be misaligned in downstream tools.
-        """
-        try:
-            import rosbag  # available inside the noetic container
-        except ImportError:
-            # rosbag not available in the jazzy container; skip silently
-            return
-
-        SAMPLE = 5  # messages per topic to check
-
-        try:
-            logger.debug(
-                "Starting ROS1 timestamp validation for %s max_drift_s=%s sample_size=%s",
-                _debug_path_state(bag_path),
-                max_drift_s,
-                SAMPLE,
-            )
-            with rosbag.Bag(bag_path, "r") as bag:
-                topic_map: Dict[str, List[float]] = {}
-                for topic, msg, t in bag.read_messages():
-                    drifts = topic_map.setdefault(topic, [])
-                    if len(drifts) >= SAMPLE:
-                        continue
-                    if hasattr(msg, "header") and hasattr(msg.header, "stamp"):
-                        header_s = msg.header.stamp.to_sec()
-                        bag_s    = t.to_sec()
-                        drifts.append(abs(header_s - bag_s))
-
-                for topic, drifts in topic_map.items():
-                    if not drifts:
-                        continue
-                    mean_drift = sum(drifts) / len(drifts)
-                    logger.debug(
-                        "Timestamp drift samples for %s: %s",
-                        topic,
-                        ", ".join(f"{value:.6f}" for value in drifts),
-                    )
-                    if mean_drift > max_drift_s:
-                        warn(
-                            f"TIMESTAMP DRIFT on '{topic}': mean |bag_time - "
-                            f"header.stamp| = {mean_drift:.3f}s  "
-                            f"(threshold {max_drift_s}s).  "
-                            f"Adjust downstream time windows relative to header.stamp, not bag recording time."
-                        )
-                    else:
-                        log(f"  ✓ {topic}: timestamp drift {mean_drift:.4f}s ok")
-        except Exception as e:
-            warn(f"Timestamp validation skipped: {e}")
+        return _valid._validate_timestamps(bag_path, max_drift_s)
 
     def _count_ros2_messages_per_topic(self, bag_path: str) -> Dict[str, int]:
-        counts: Dict[str, int] = defaultdict(int)
-        logger.debug("Counting ROS2 messages per topic for %s", _debug_path_state(bag_path))
-        reader = self._open_reader(bag_path)
-        pbar = _make_progress_bar("Counting ROS2 source messages", "msg")
-        try:
-            while reader.has_next():
-                topic_name, _, _ = reader.read_next()
-                counts[topic_name] += 1
-                if pbar is not None:
-                    pbar.update(1)
-        finally:
-            if pbar is not None:
-                pbar.close()
-        counts_dict = dict(counts)
-        logger.debug("ROS2 message counts summary: %s", _debug_topic_count_summary(counts_dict))
-        return counts_dict
+        return _valid._count_ros2_messages_per_topic(bag_path)
 
     def _count_ros1_messages_per_topic(self, bag_path: str) -> Dict[str, int]:
-        counts: Dict[str, int] = defaultdict(int)
-        try:
-            from rosbags.rosbag1 import Reader as Ros1Reader
-            logger.debug(
-                "Counting ROS1 messages per topic with rosbags.rosbag1.Reader for %s",
-                _debug_path_state(bag_path),
-            )
-            pbar = _make_progress_bar("Counting ROS1 output messages", "msg")
-            try:
-                with Ros1Reader(bag_path) as reader:
-                    for conn, _, _ in reader.messages():
-                        counts[conn.topic] += 1
-                        if pbar is not None:
-                            pbar.update(1)
-            finally:
-                if pbar is not None:
-                    pbar.close()
-            counts_dict = dict(counts)
-            logger.debug("ROS1 message counts summary via rosbags reader: %s", _debug_topic_count_summary(counts_dict))
-            return counts_dict
-        except Exception:
-            logger.debug(
-                "rosbags.rosbag1.Reader counting failed for %s; retrying with rosbag",
-                _debug_path_state(bag_path),
-                exc_info=True,
-            )
-
-        try:
-            import rosbag
-            logger.debug(
-                "Counting ROS1 messages per topic with rosbag.Bag for %s",
-                _debug_path_state(bag_path),
-            )
-            pbar = _make_progress_bar("Counting ROS1 output messages", "msg")
-            try:
-                with rosbag.Bag(bag_path, "r") as bag:
-                    for topic, _, _ in bag.read_messages():
-                        counts[topic] += 1
-                        if pbar is not None:
-                            pbar.update(1)
-            finally:
-                if pbar is not None:
-                    pbar.close()
-            counts_dict = dict(counts)
-            logger.debug("ROS1 message counts summary via rosbag: %s", _debug_topic_count_summary(counts_dict))
-            return counts_dict
-        except Exception as e:
-            raise RuntimeError(f"Unable to count messages in ROS1 bag '{bag_path}': {e}")
+        return _valid._count_ros1_messages_per_topic(bag_path)
 
     @staticmethod
     def _expected_topic_counts(
@@ -1845,39 +1245,14 @@ class Ros2BagUtils:
         exclude_topics: Optional[List[str]],
         remap: Optional[Dict[str, str]],
     ) -> Dict[str, int]:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        expected: Dict[str, int] = defaultdict(int)
-        for src_topic, count in src_counts.items():
-            if include_set and src_topic not in include_set:
-                continue
-            if src_topic in exclude_set:
-                continue
-            dst_topic = remap.get(src_topic, src_topic) if remap else src_topic
-            expected[dst_topic] += int(count)
-        return dict(expected)
+        return _valid._expected_topic_counts(src_counts, include_topics, exclude_topics, remap)
 
     def _source_topic_types(self, bag_path: str) -> Dict[str, str]:
-        reader = self._open_reader(bag_path)
-        try:
-            topic_types = {topic.name: topic.type for topic in reader.get_all_topics_and_types()}
-            logger.debug(
-                "Source ROS2 topic types for %s: %s",
-                _debug_path_state(bag_path),
-                topic_types,
-            )
-            return topic_types
-        finally:
-            close_reader = getattr(reader, "close", None)
-            if callable(close_reader):
-                close_reader()
+        return _tfilter._source_topic_types(bag_path)
 
     @staticmethod
     def _extract_parse_failed_msgtype(details: str) -> Optional[str]:
-        match = _FAILED_PARSE_MSGTYPE_RE.search(str(details))
-        if not match:
-            return None
-        return match.group(1)
+        return _tfilter._extract_parse_failed_msgtype(details)
 
     def _topics_for_msg_type(
         self,
@@ -1886,26 +1261,7 @@ class Ros2BagUtils:
         include_topics: Optional[List[str]] = None,
         exclude_topics: Optional[List[str]] = None,
     ) -> List[str]:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        topic_types = self._source_topic_types(str(bag_path))
-        topics = []
-        for topic_name, current_type in sorted(topic_types.items()):
-            if include_set and topic_name not in include_set:
-                continue
-            if topic_name in exclude_set:
-                continue
-            if current_type == msg_type:
-                topics.append(topic_name)
-        logger.debug(
-            "Topics matching parse-failed type %s in %s with include=%s exclude=%s: %s",
-            msg_type,
-            _debug_path_state(bag_path),
-            include_topics,
-            exclude_topics,
-            topics,
-        )
-        return topics
+        return _tfilter._topics_for_msg_type(bag_path, msg_type, include_topics, exclude_topics)
 
     def _selected_topic_names(
         self,
@@ -1913,23 +1269,7 @@ class Ros2BagUtils:
         include_topics: Optional[List[str]] = None,
         exclude_topics: Optional[List[str]] = None,
     ) -> List[str]:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        selected = []
-        for topic_name in sorted(self._source_topic_types(str(bag_path)).keys()):
-            if include_set and topic_name not in include_set:
-                continue
-            if topic_name in exclude_set:
-                continue
-            selected.append(topic_name)
-        logger.debug(
-            "Selected topics in %s with include=%s exclude=%s: %s",
-            _debug_path_state(bag_path),
-            include_topics,
-            exclude_topics,
-            selected,
-        )
-        return selected
+        return _tfilter._selected_topic_names(bag_path, include_topics, exclude_topics)
 
     @staticmethod
     def _ffmpeg_decoded_output_topic(
@@ -1937,22 +1277,7 @@ class Ros2BagUtils:
         existing_topics: Optional[set] = None,
         used_topics: Optional[set] = None,
     ) -> str:
-        if input_topic.endswith("/ffmpeg"):
-            base_topic = input_topic[: -len("/ffmpeg")]
-        else:
-            base_topic = f"{input_topic}/decoded"
-
-        existing_topics = existing_topics or set()
-        used_topics = used_topics or set()
-        if base_topic not in existing_topics and base_topic not in used_topics:
-            return base_topic
-
-        candidate = f"{base_topic}_decoded"
-        suffix = 1
-        while candidate in existing_topics or candidate in used_topics:
-            suffix += 1
-            candidate = f"{base_topic}_decoded_{suffix}"
-        return candidate
+        return _tfilter._ffmpeg_decoded_output_topic(input_topic, existing_topics, used_topics)
 
     def _discover_ffmpeg_decode_topic_map(
         self,
@@ -1960,28 +1285,7 @@ class Ros2BagUtils:
         include_topics: Optional[List[str]] = None,
         exclude_topics: Optional[List[str]] = None,
     ) -> Dict[str, str]:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        existing_topics = set(topic_types.keys())
-        used_outputs: set = set()
-        topic_map: Dict[str, str] = {}
-
-        for topic_name, msg_type in sorted(topic_types.items()):
-            if not _is_ffmpeg_packet_msg_type(msg_type):
-                continue
-            out_topic = self._ffmpeg_decoded_output_topic(
-                topic_name,
-                existing_topics=existing_topics,
-                used_topics=used_outputs,
-            )
-            if topic_name in exclude_set or out_topic in exclude_set:
-                continue
-            if include_set and topic_name not in include_set and out_topic not in include_set:
-                continue
-            topic_map[topic_name] = out_topic
-            used_outputs.add(out_topic)
-
-        return topic_map
+        return _tfilter._discover_ffmpeg_decode_topic_map(topic_types, include_topics, exclude_topics)
 
     def _convert_using_rosbag2_py_writer_fallback(
         self,
@@ -2110,107 +1414,10 @@ class Ros2BagUtils:
         include_topics: Optional[List[str]] = None,
         exclude_topics: Optional[List[str]] = None,
     ) -> List[str]:
-        include_set = set(include_topics or [])
-        exclude_set = set(exclude_topics or [])
-        auto_excluded: List[str] = []
-        for topic_name, msg_type in self._source_topic_types(bag_path).items():
-            if include_set and topic_name not in include_set:
-                continue
-            if topic_name in exclude_set:
-                continue
-            if _is_standard_ros_msg_type(msg_type):
-                continue
-            auto_excluded.append(topic_name)
-        return sorted(auto_excluded)
+        return _tfilter._auto_exclude_unsupported_topics(bag_path, include_topics, exclude_topics)
 
     def _single_file_rosbag2_metadata(self, bag_path: str) -> Dict[str, object]:
-        reader = self._open_reader(bag_path)
-        try:
-            topics = list(reader.get_all_topics_and_types())
-            topic_entries = []
-            for topic in topics:
-                topic_entries.append(
-                    {
-                        "topic_metadata": {
-                            "name": topic.name,
-                            "type": topic.type,
-                            "serialization_format": _safe_rosbag2_metadata_scalar(
-                                getattr(topic, "serialization_format", ""),
-                                default="cdr",
-                            ) or "cdr",
-                            "offered_qos_profiles": _safe_rosbag2_metadata_scalar(
-                                getattr(topic, "offered_qos_profiles", ""),
-                                default="",
-                            ),
-                            "type_description_hash": _safe_rosbag2_metadata_scalar(
-                                getattr(topic, "type_description_hash", ""),
-                                default="",
-                            ),
-                        },
-                        "message_count": 0,
-                    }
-                )
-
-            first_ts = None
-            last_ts = None
-            message_count = 0
-            topic_counts: Dict[str, int] = defaultdict(int)
-            while reader.has_next():
-                topic_name, _data, ts = reader.read_next()
-                topic_counts[topic_name] += 1
-                message_count += 1
-                if first_ts is None:
-                    first_ts = ts
-                last_ts = ts
-
-            for entry in topic_entries:
-                entry["message_count"] = topic_counts.get(entry["topic_metadata"]["name"], 0)
-
-            first_ts = int(first_ts or 0)
-            last_ts = int(last_ts or first_ts)
-            duration_ns = max(0, last_ts - first_ts)
-            bag_name = Path(bag_path).name
-            metadata = {
-                "rosbag2_bagfile_information": {
-                    "version": 8,
-                    "storage_identifier": self._storage_id_for_bag(bag_path),
-                    "duration": {"nanoseconds": duration_ns},
-                    "starting_time": {"nanoseconds_since_epoch": first_ts},
-                    "message_count": message_count,
-                    "topics_with_message_count": topic_entries,
-                    "compression_format": "",
-                    "compression_mode": "",
-                    "relative_file_paths": [bag_name],
-                    "files": [
-                        {
-                            "path": bag_name,
-                            "starting_time": {"nanoseconds_since_epoch": first_ts},
-                            "duration": {"nanoseconds": duration_ns},
-                            "message_count": message_count,
-                        }
-                    ],
-                    "custom_data": None,
-                }
-            }
-            info = metadata["rosbag2_bagfile_information"]
-            logger.debug(
-                "Generated synthetic metadata for standalone ROS2 bag %s: version=%s storage=%s message_count=%s duration_ns=%s relative_files=%s",
-                _debug_path_state(bag_path),
-                info.get("version"),
-                info.get("storage_identifier"),
-                info.get("message_count"),
-                info.get("duration", {}).get("nanoseconds"),
-                info.get("relative_file_paths"),
-            )
-            self._debug_log_topic_descriptions(
-                "Synthetic standalone ROS2 metadata topics",
-                topics,
-            )
-            return metadata
-        finally:
-            close_reader = getattr(reader, "close", None)
-            if callable(close_reader):
-                close_reader()
+        return _insp._single_file_rosbag2_metadata(bag_path)
 
     def _prepare_rosbags_convert_input(self, src_path: str, temp_root: Path) -> Path:
         src = Path(src_path).resolve()
@@ -2805,157 +2012,26 @@ class Ros2BagUtils:
         raise RuntimeError(f"rosbags-convert CLI fallback failed: {details}")
 
     def _first_json_string_topic(self, bag_path: str, topic_name: str) -> Optional[dict]:
-        try:
-            topic_types = self._source_topic_types(bag_path)
-            type_str = topic_types.get(topic_name)
-            if not type_str:
-                return None
-            msg_cls = self._get_msg_class(type_str)
-            if msg_cls is None:
-                return None
-            reader = self._open_reader(bag_path)
-            while reader.has_next():
-                cur_topic, data, _ = reader.read_next()
-                if cur_topic != topic_name:
-                    continue
-                msg = rclpy.serialization.deserialize_message(data, msg_cls)
-                payload = getattr(msg, "data", None)
-                if isinstance(payload, (bytes, bytearray)):
-                    payload = payload.decode("utf-8", errors="ignore")
-                if isinstance(payload, str):
-                    return json.loads(payload)
-                return None
-        except Exception:
-            return None
-        return None
+        return _ouster._first_json_string_topic(bag_path, topic_name)
 
     @staticmethod
     def _coerce_int(value) -> Optional[int]:
-        try:
-            if value is None or isinstance(value, bool):
-                return None
-            if isinstance(value, str):
-                value = value.strip()
-                if not value:
-                    return None
-            return int(value)
-        except Exception:
-            return None
+        return _ouster._coerce_int(value)
 
     @staticmethod
     def _parse_ouster_lidar_mode(lidar_mode: Optional[str]) -> Dict[str, Optional[int]]:
-        if not isinstance(lidar_mode, str):
-            return {"columns_per_frame": None, "scan_rate_hz": None}
-        match = re.search(r"(\d+)\s*x\s*(\d+)", lidar_mode)
-        if not match:
-            return {"columns_per_frame": None, "scan_rate_hz": None}
-        return {
-            "columns_per_frame": int(match.group(1)),
-            "scan_rate_hz": int(match.group(2)),
-        }
+        return _ouster._parse_ouster_lidar_mode(lidar_mode)
 
     @staticmethod
     def _parse_ouster_channel_count(model: Optional[str]) -> Optional[int]:
-        if not isinstance(model, str):
-            return None
-        match = re.search(r"OS-\d+-(\d+)", model)
-        if not match:
-            return None
-        try:
-            return int(match.group(1))
-        except Exception:
-            return None
+        return _ouster._parse_ouster_channel_count(model)
 
     def _ouster_packets_per_scan(self, bag_path: str, prefix: str) -> Dict[str, object]:
-        metadata_topic = f"{prefix}/metadata"
-        metadata = self._first_json_string_topic(bag_path, metadata_topic)
-        columns_per_packet = 16
-        columns_per_frame = None
-        model = None
-        lidar_mode = None
-        scan_rate_hz = None
-        channel_count = None
-        if isinstance(metadata, dict):
-            fmt = metadata.get("format", {}) if isinstance(metadata.get("format", {}), dict) else {}
-            sensor_info = metadata.get("sensor_info", {}) if isinstance(metadata.get("sensor_info", {}), dict) else {}
-            config_params = (
-                metadata.get("config_params", {})
-                if isinstance(metadata.get("config_params", {}), dict)
-                else {}
-            )
-
-            model = (
-                sensor_info.get("prod_line")
-                or sensor_info.get("product_line")
-                or metadata.get("prod_line")
-                or metadata.get("product_line")
-            )
-            lidar_mode = (
-                config_params.get("lidar_mode")
-                or sensor_info.get("lidar_mode")
-                or metadata.get("lidar_mode")
-            )
-
-            columns_per_frame = (
-                fmt.get("columns_per_frame")
-                or config_params.get("columns_per_frame")
-                or sensor_info.get("columns_per_frame")
-                or metadata.get("columns_per_frame")
-            )
-            columns_per_packet = (
-                fmt.get("columns_per_packet")
-                or config_params.get("columns_per_packet")
-                or sensor_info.get("columns_per_packet")
-                or metadata.get("columns_per_packet")
-                or columns_per_packet
-            )
-
-            mode_info = self._parse_ouster_lidar_mode(lidar_mode)
-            if columns_per_frame is None:
-                columns_per_frame = mode_info.get("columns_per_frame")
-            scan_rate_hz = mode_info.get("scan_rate_hz")
-            channel_count = self._parse_ouster_channel_count(model)
-
-        cpf = self._coerce_int(columns_per_frame)
-        cpp = self._coerce_int(columns_per_packet)
-        if cpp is None:
-            cpp = 16
-        if cpf is None or cpp <= 0:
-            packets_per_scan = None
-        else:
-            ratio = float(cpf) / float(cpp)
-            rounded = int(round(ratio))
-            if abs(ratio - float(rounded)) > 1e-6:
-                packets_per_scan = None
-            else:
-                packets_per_scan = max(1, rounded)
-        return {
-            "metadata_topic": metadata_topic,
-            "metadata_found": isinstance(metadata, dict),
-            "model": model,
-            "channel_count": channel_count,
-            "lidar_mode": lidar_mode,
-            "scan_rate_hz": scan_rate_hz,
-            "columns_per_frame": cpf,
-            "columns_per_packet": cpp,
-            "packets_per_scan": packets_per_scan,
-        }
+        return _ouster._ouster_packets_per_scan(bag_path, prefix)
 
     @staticmethod
     def _pick_ouster_points_topic(dst_counts: Dict[str, int], prefix: str) -> Optional[str]:
-        direct_candidates = [
-            f"{prefix}/points/corrected",
-            f"{prefix}/points",
-        ]
-        for topic in direct_candidates:
-            if topic in dst_counts:
-                return topic
-        # Fallback to any point topic under the same prefix.
-        prefix_norm = f"{prefix}/"
-        for topic in dst_counts:
-            if topic.startswith(prefix_norm) and "/points" in topic:
-                return topic
-        return None
+        return _ouster._pick_ouster_points_topic(dst_counts, prefix)
 
     def _validate_ouster_packet_topic(
         self,
@@ -2964,92 +2040,7 @@ class Ros2BagUtils:
         packet_count: int,
         dst_counts: Dict[str, int],
     ) -> bool:
-        prefix = packet_topic[: -len("/lidar_packets")]
-        points_topic = self._pick_ouster_points_topic(dst_counts, prefix)
-        if points_topic is None:
-            err(
-                "Missing %s and no corresponding point topic found under prefix '%s'",
-                packet_topic,
-                prefix,
-            )
-            return False
-
-        actual_scans = int(dst_counts.get(points_topic, 0))
-        if actual_scans <= 0:
-            err(
-                "Point topic %s has zero messages while %s had %d packets",
-                points_topic,
-                packet_topic,
-                packet_count,
-            )
-            return False
-
-        ouster_info = self._ouster_packets_per_scan(src_path, prefix)
-        packets_per_scan = ouster_info.get("packets_per_scan")
-        metadata_topic = ouster_info.get("metadata_topic", f"{prefix}/metadata")
-        metadata_found = bool(ouster_info.get("metadata_found"))
-        model = ouster_info.get("model")
-        channel_count = ouster_info.get("channel_count")
-        lidar_mode = ouster_info.get("lidar_mode")
-        cols = ouster_info.get("columns_per_frame")
-        cols_packet = ouster_info.get("columns_per_packet")
-
-        if not metadata_found:
-            err(
-                "Missing required Ouster metadata topic %s for %s. "
-                "Packet->scan validation must use metadata.",
-                metadata_topic,
-                packet_topic,
-            )
-            return False
-
-        if not packets_per_scan:
-            err(
-                "Could not infer packets/scan for %s from %s "
-                "(model=%s, channels=%s, lidar_mode=%s, columns_per_frame=%s, columns_per_packet=%s).",
-                packet_topic,
-                metadata_topic,
-                model,
-                channel_count,
-                lidar_mode,
-                cols,
-                cols_packet,
-            )
-            return False
-
-        expected_scans = float(packet_count) / float(packets_per_scan)
-        tolerance = max(2.0, min(50.0, expected_scans * 0.001))
-        delta = abs(float(actual_scans) - expected_scans)
-        log(
-            "Ouster packet->scan check: %s packets=%d -> %s scans=%d "
-            "(model=%s, channels=%s, lidar_mode=%s, columns_per_frame=%s, "
-            "columns_per_packet=%s, packets_per_scan=%d, expected≈%.2f, delta=%.2f, tolerance=%.2f)",
-            packet_topic,
-            packet_count,
-            points_topic,
-            actual_scans,
-            model or "unknown",
-            channel_count if channel_count is not None else "unknown",
-            lidar_mode or "unknown",
-            cols if cols is not None else "unknown",
-            cols_packet if cols_packet is not None else "unknown",
-            packets_per_scan,
-            expected_scans,
-            delta,
-            tolerance,
-        )
-        if delta <= tolerance:
-            return True
-
-        err(
-            "Packet->scan validation failed for %s -> %s (expected≈%.2f scans, got=%d, tolerance=%.2f)",
-            packet_topic,
-            points_topic,
-            expected_scans,
-            actual_scans,
-            tolerance,
-        )
-        return False
+        return _valid._validate_ouster_packet_topic(src_path, packet_topic, packet_count, dst_counts)
 
     def _validate_message_counts(
         self,
@@ -3059,115 +2050,7 @@ class Ros2BagUtils:
         exclude_topics: Optional[List[str]] = None,
         remap: Optional[Dict[str, str]] = None,
     ) -> None:
-        log("Validating per-topic message counts (source ROS2 vs output ROS1)...")
-        logger.debug(
-            "Message-count validation inputs: src=%s dst=%s include=%s exclude=%s remap=%s",
-            _debug_path_state(src_path),
-            _debug_path_state(dst_path),
-            include_topics,
-            exclude_topics,
-            remap,
-        )
-        src_counts = self._count_ros2_messages_per_topic(src_path)
-        source_types = self._source_topic_types(src_path)
-        expected_counts = self._expected_topic_counts(src_counts, include_topics, exclude_topics, remap)
-        dst_counts = self._count_ros1_messages_per_topic(dst_path)
-        logger.debug("Expected output count summary: %s", _debug_topic_count_summary(expected_counts))
-        logger.debug("Actual ROS1 output count summary: %s", _debug_topic_count_summary(dst_counts))
-
-        mismatches: List[str] = []
-        missing: List[str] = []
-        extras: List[str] = []
-        soft_missing: List[str] = []
-
-        for topic, expected in sorted(expected_counts.items()):
-            actual = int(dst_counts.get(topic, 0))
-            source_type = source_types.get(topic)
-            if actual == 0:
-                if source_type in _OPTIONAL_DROPPED_ROS2_TYPES:
-                    soft_missing.append(
-                        f"{topic} (type={source_type}, expected={expected})"
-                    )
-                    logger.debug(
-                        "Allowing dropped optional topic: topic=%s type=%s expected=%s",
-                        topic,
-                        source_type,
-                        expected,
-                    )
-                    continue
-                if topic.endswith("/imu_packets"):
-                    soft_missing.append(f"{topic} (imu packets, expected={expected})")
-                    logger.debug("Allowing dropped imu packet topic: topic=%s expected=%s", topic, expected)
-                    continue
-                if topic.endswith("/lidar_packets"):
-                    if self._validate_ouster_packet_topic(src_path, topic, expected, dst_counts):
-                        soft_missing.append(f"{topic} (validated via packet->scan metadata check)")
-                        logger.debug(
-                            "Allowing lidar packet topic after packet->scan validation: topic=%s expected=%s",
-                            topic,
-                            expected,
-                        )
-                        continue
-                missing.append(topic)
-                logger.debug(
-                    "Missing output topic: topic=%s type=%s expected=%s actual=%s",
-                    topic,
-                    source_type,
-                    expected,
-                    actual,
-                )
-            elif actual != expected:
-                mismatches.append(f"{topic}: expected={expected} actual={actual}")
-                logger.debug(
-                    "Output topic count mismatch: topic=%s type=%s expected=%s actual=%s",
-                    topic,
-                    source_type,
-                    expected,
-                    actual,
-                )
-
-        for topic in sorted(dst_counts.keys()):
-            if topic not in expected_counts:
-                extras.append(f"{topic}: actual={dst_counts[topic]}")
-                logger.debug("Extra output topic: topic=%s actual=%s", topic, dst_counts[topic])
-
-        if soft_missing:
-            warn("Allowed missing topics after conversion:")
-            for line in soft_missing:
-                warn(f"  {line}")
-
-        if missing or mismatches:
-            for topic in missing:
-                err(f"Missing topic after conversion: {topic}")
-            for line in mismatches:
-                err(f"Message count mismatch: {line}")
-            if extras:
-                warn("Extra topics in output bag (not part of expected filtered set):")
-                for line in extras:
-                    warn(f"  {line}")
-            details: List[str] = []
-            if missing:
-                details.append("missing=" + ", ".join(missing[:10]))
-            if mismatches:
-                details.append("mismatches=" + "; ".join(mismatches[:10]))
-            logger.debug(
-                "Message-count validation failure details: missing=%s mismatches=%s extras=%s source_types=%s",
-                missing,
-                mismatches,
-                extras,
-                {topic: source_types.get(topic) for topic in sorted(set(missing) | {m.split(':', 1)[0] for m in mismatches})},
-            )
-            raise RuntimeError(
-                "Message-count validation failed; conversion output is incomplete or inconsistent. "
-                + " | ".join(details)
-            )
-
-        if extras:
-            warn("Output contains extra topics outside expected filtered set:")
-            for line in extras:
-                warn(f"  {line}")
-
-        log(f"Message-count validation passed for {len(expected_counts)} topic(s).")
+        return _valid._validate_message_counts(src_path, dst_path, include_topics, exclude_topics, remap)
 
     def _remap_topics(
         self,
@@ -3319,13 +2202,7 @@ class Ros2BagUtils:
 
     # ---------- JSON extraction ----------
     def _get_msg_class(self, type_str: str):
-        try:
-            pkg, _, msg_name = type_str.partition("/msg/")
-            module = importlib.import_module(f"{pkg}.msg")
-            return getattr(module, msg_name)
-        except Exception as e:
-            warn(f"Cannot import {type_str}: {e}")
-            return None
+        return _ouster._get_msg_class(type_str)
 
     def _try_extract_json(self, msg):
         for field in ("json_data", "data", "info", "payload"):
