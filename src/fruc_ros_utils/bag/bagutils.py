@@ -123,6 +123,10 @@ from fruc_ros_utils.bag.image_pipeline import (
     extract_images_manifest as _extract_images_manifest,
     images_manifest_to_bag as _images_manifest_to_bag,
 )
+from fruc_ros_utils.bag.metrics_pipeline import (
+    analyze_metrics as _analyze_metrics,
+    auto_illumination_from_bag as _auto_illumination_from_bag,
+)
 
 
 # --------------------------- Config Loader ----------------------------------
@@ -349,188 +353,12 @@ class RosbagUtils:
         topics: List[str],
         out_file: Optional[str] = None,
         cfg: Optional[dict] = None,
-        benchmark: bool = False
+        benchmark: bool = False,
     ) -> Dict[str, Dict]:
-        """
-        Analyze exposure + sharpness metrics across bag(s).
-        - Computes per-frame metrics.
-        - Summarizes stats (exposure, sharpness).
-        - Recommends thresholds based on dataset percentiles.
-        - Optionally benchmarks categorical methods (deblur, exposure).
-        """
-        results = []
-        bag_files = _discover_bags(in_path)
-
-        # --- Ensure we have full config (merge user + dev + CLI) ---
-        if cfg is None:
-            user_cfg_path = os.environ.get("USER_CONFIG")
-            dev_cfg_path = os.environ.get("DEV_CONFIG")
-            user_cfg = load_yaml(user_cfg_path) if user_cfg_path else {}
-            default_dev_cfg = pathlib.Path(__file__).resolve().parents[3] / "config" / "dev_defaults.yaml"
-            dev_cfg = load_yaml(dev_cfg_path) or load_yaml(str(default_dev_cfg))
-            cfg = merge_configs(argparse.Namespace(), user_cfg, dev_cfg)
-
-        try:
-            for bag_file in _iter_bags(bag_files, desc="Analyzing metrics"):
-                with rosbag.Bag(bag_file, "r") as bag:
-                    for topic, msg, t in _iter_messages(bag, desc=f"Metrics {os.path.basename(bag_file)}", topics=topics):
-                        try:
-                            if "bayer" in msg.encoding.lower():
-                                img = vutils.demosaic_bayer_ros(msg)
-                            else:
-                                img = CvBridge().imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                        except Exception as e:
-                            logger.warning("Decode failed at %.3f: %s", t.to_sec(), e)
-                            continue
-
-                        # Compute metrics
-                        luma = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)[:, :, 0]
-                        exp = vmetrics.exposure_metrics_robust(luma)
-                        sharp = vmetrics.sharpness_metrics(img)
-
-                        results.append({
-                            "time": t.to_sec(),
-                            "topic": topic,
-                            **exp,
-                            **sharp
-                        })
-        except KeyboardInterrupt:
-            logger.warning("KeyboardInterrupt — returning partial results (%d frames)", len(results))
-
-        if not results:
-            logger.warning("No metrics computed")
-            return {}
-
-        df = pd.DataFrame(results)
-        summary = df.describe().to_dict()
-
-        # --- Sharpness stats (LapVar distribution) ---
-        if "lap_var" in df:
-            lapvar = df["lap_var"]
-            summary["sharpness_stats"] = {
-                "min": float(lapvar.min()), "max": float(lapvar.max()),
-                "mean": float(lapvar.mean()), "median": float(lapvar.median()),
-                "p05": float(lapvar.quantile(0.05)), "p25": float(lapvar.quantile(0.25)),
-                "p75": float(lapvar.quantile(0.75)), "p95": float(lapvar.quantile(0.95)),
-            }
-            thresholds = [50, 100, 200, 500]
-            summary["blur_threshold_counts"] = {th: int((lapvar < th).sum()) for th in thresholds}
-
-            # Save histogram
-            if out_file:
-                import matplotlib.pyplot as plt
-                out_path = pathlib.Path(out_file)
-                hist_file = out_path.with_name(out_path.stem + "_lapvar_hist.png")
-                plt.hist(lapvar, bins=50, log=True)
-                plt.title("Sharpness (LapVar) distribution")
-                plt.xlabel("LapVar"); plt.ylabel("Frame count")
-                plt.savefig(hist_file); plt.close()
-                logger.info("Saved LapVar histogram → %s", hist_file)
-
-        cfg_tree = make_cfg_tree(cfg)
-        summary["_recommendations"] = vutils.recommend_params(df, cfg_tree)
-        # --- Optional benchmarking of categorical methods ---
-        if benchmark:
-            logger.info("Benchmarking correction methods on sample frames...")
-            sample = df.sample(n=min(20, len(df)), random_state=0)
-            bench_results = {}
-
-            # Deblur algorithms (lucy vs wiener)
-            import random
-            for algo in ["lucy", "wiener"]:
-                gains = []
-                for _, _row in sample.iterrows():
-                    # NOTE: this is illustrative; proper impl would reload frames
-                    # Here we just simulate by comparing stats
-                    gains.append(random.uniform(0, 10) if algo == "lucy" else random.uniform(-2, 5))
-                bench_results[f"deblur_{algo}"] = np.mean(gains)
-
-            # Exposure under/over methods (toy placeholder)
-            bench_results["under_method_best"] = "clahe"
-            bench_results["over_method_best"] = "lime"
-
-            # Alignment preference
-            bench_results["mf_align_flow"] = "robust (no IMU needed)"
-            bench_results["mf_align_ego"] = "preferred if IMU sync is reliable"
-
-            summary["_benchmarks"] = bench_results
-
-        # --- Save results ---
-        if out_file:
-            out_path = pathlib.Path(out_file)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(out_path.with_suffix(".csv"), index=False)
-            with open(out_path.with_suffix(".json"), "w") as f:
-                import json
-                json.dump(summary, f, indent=2)
-            logger.info("Metrics written to %s (.csv/.json)", out_path)
-
-        return summary
-
+        return _analyze_metrics(in_path, topics, out_file, cfg, benchmark)
 
     def auto_illumination_from_bag(self, cfg: dict) -> None:
-        logger.debug("cfg=%s", cfg)
-        in_path = cfg["in_path"]
-        topics = cfg["topics"]
-        save_bag = cfg.get("save_bag")  
-        report = cfg.get("report")  
-
-        # illumination keys are already flattened by merge_configs
-        illum_cfg = cfg
-        image_topics = [t for t in topics if t.endswith("image_raw/")]
-        imu_topics   = [t for t in topics if "imu" in t.lower()]
-        info_topics  = [t for t in topics if t.endswith("camera_info")]
-        enh = IlluminationEnhancer(
-            config=IlluminationConfig(
-                white_balance=illum_cfg.get("white_balance", True),
-                ego_theta_thresh_rad=illum_cfg.get("ego_theta_thresh_rad", 0.01),
-                under_method=illum_cfg.get("under_method", "dynamic"),
-                over_method=illum_cfg.get("over_method", "dynamic"),
-                deblur_enabled=illum_cfg.get("deblur_enabled", False),
-                deblur_mode=illum_cfg.get("deblur_mode", "off"),
-                mean_dark=illum_cfg.get("mean_dark", 85.0),
-                mean_bright=illum_cfg.get("mean_bright", 170.0),
-            ),
-            logger=logger,
-        )
-
-        bagfiles = _discover_bags(in_path)
-        if not bagfiles:
-            logger.error("No bag files found in %s", in_path)
-            return
-
-        R_cam_imu_map = _load_extrinsics(bagfiles, topics, cfg, cfg.get("extrinsics_yaml"))
-        logger.debug("Extrinsics=%s", R_cam_imu_map)
-
-        multiple = len(bagfiles) > 1
-
-        def _process_one(bag_path: str) -> Dict:
-            logger.debug("Processing bag=%s", bag_path)
-            out_bag_path = _resolve_out_bag(save_bag, bag_path, multiple) if save_bag else None
-            summary = enh.process_bag(
-                bag_path=bag_path,
-                out_bag_path=out_bag_path,
-                topics=image_topics,       # only image topics for correction
-                imu_topics=imu_topics,     # NEW
-                info_topics=info_topics,   # NEW
-                report_dir=report,
-                force=cfg.get("force", False),
-                exposure_time=illum_cfg.get("exposure_time", 0.01),
-                R_cam_imu_map=R_cam_imu_map,
-                preserve_bayer=illum_cfg.get("preserve_bayer", False),
-            )
-            if summary.get("corrected_images", 0) == 0:
-                logger.warning("No matching image topics %s found in %s", topics, bag_path)
-            return summary
-
-        total_corrected = 0
-        for bag_path in _iter_bags(bagfiles, desc="Auto illumination"):
-            summary = _process_one(bag_path)
-            total_corrected += summary.get("corrected_images", 0)
-            logger.info("Processed %s with summary: %s", bag_path, summary)
-
-        logger.info("Total corrected images: %d", total_corrected)
-        logger.debug("Done total_corrected=%d", total_corrected)
+        return _auto_illumination_from_bag(cfg)
 
 def print_results(results: Dict, header: Optional[str] = None) -> None:
     """
