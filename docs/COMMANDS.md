@@ -152,26 +152,29 @@ Behavior notes:
   the minimal topic set to avoid unsupported topic conversions
 
 Docker note:
-- when running through Docker, use `/bags/...` for `--bag`, `--out`, and `--folder`
+- the Docker stack mounts two separate volumes: `/bags` (source bags, `BAGS_PATH_IN`) and `/bags_out` (output MCaps, `BAGS_PATH_OUT`)
+- use `/bags/...` for `--bag` and `/bags_out/...` (or `/bags/...`) for `--out` depending on where the output belongs
 
 Example in Docker:
 
 ```bash
-BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+BAGS_PATH_IN=/path/to/bags_dir BAGS_PATH_OUT=/path/to/output_dir \
+  docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
   ros2utils convert_to_ros1 \
     --bag /bags/session/run_01.mcap \
-    --out /bags/session/run_01_ros1/ \
+    --out /bags_out/session/run_01_ros1/ \
     --split-duration 10m
 ```
 
 Decode Ouster + FFmpeg packet topics in Docker:
 
 ```bash
-BAGS_PATH=/path/to/bags_root docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
+BAGS_PATH_IN=/path/to/bags_dir BAGS_PATH_OUT=/path/to/output_dir \
+  docker compose -f Docker/ros/docker-compose.yml run --rm jazzy \
   bash -lc 'source /opt/overlay_ws/install/setup.bash && \
   ros2utils convert_to_ros1 \
     --bag /bags/session/run_01.mcap \
-    --out /bags/session/run_01_ros1/ \
+    --out /bags_out/session/run_01_ros1/ \
     --decode-ouster \
     --decode-ffmpeg \
     --output-mode points'
@@ -375,6 +378,47 @@ ros1utils crop_pointcloud_fov --in <in.bag> --out <out.bag> [--topic /ouster/poi
 
 These shortcuts call the packaged helper modules directly, so they do not depend on the current working directory.
 
+## Fill Missing MCAP Files from ROS 1 Bags
+
+Reconstructs missing ROS 2 MCAP chunks from the corresponding ROS 1 `.bag` files.
+Pipeline per chunk: ROS 1 `.bag` → rosbag2 `db3` (via `rosbags-convert`) → MCAP (re-encode Ouster `PointCloud2` → `PacketMsg`).
+
+Run inside the `fruc-jazzy` container (must source the overlay for Ouster message types):
+
+```bash
+docker exec fruc-jazzy bash -c \
+  "source /opt/ros/jazzy/setup.bash && source /opt/overlay_ws/install/setup.bash && \
+   python3 /workspace/fruc_ros_utils/scripts/fill_missing_mcaps.py \
+     --bags-dir /bags \
+     --output-dir /bags_out \
+     --tmp-dir /bags/.tmp_convert \
+     --name-prefix 2026_03_27_17_02_24__icnf-curt \
+     --chunk-indices 5 6 7 8 9 \
+     --reference-mcap /bags_out/2026_03_27_17_02_24__icnf-curt__0.mcap \
+     --no-ffmpeg-encode"
+```
+
+Key flags:
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--bags-dir` | `/bags` | Directory containing the ROS 1 `.bag` files |
+| `--output-dir` | `/bags_out` | Destination for the output `.mcap` files |
+| `--tmp-dir` | `/bags/.tmp_convert` | Local-disk temp dir (must NOT be on Samba/NFS) |
+| `--name-prefix` | `2026_03_27_17_02_24__icnf-curt` | Common prefix of input bag files |
+| `--chunk-indices` | `5 6 7 8 9` | Space-separated list of chunk numbers to process |
+| `--reference-mcap` | `…__0.mcap` | Existing MCAP to extract Ouster sensor metadata from |
+| `--no-ouster-encode` | off | Skip Ouster `PointCloud2` → `PacketMsg` re-encoding |
+| `--no-ffmpeg-encode` | off | Skip ffmpeg image compression (pass images through as raw) |
+| `--verbose` | off | Enable DEBUG logging |
+
+Notes:
+- `--tmp-dir` must be on a local disk, not on a Samba/NFS share — SQLite WAL locking will fail otherwise
+- Existing output MCaps are skipped (idempotent); delete them manually to force re-conversion
+- `rosbags-convert` is auto-detected for both old (positional src) and new (`--src` flag) syntax
+- Ouster metadata is extracted from `--reference-mcap`; without it Ouster re-encoding is skipped
+- The output differs from the reference bags in two minor ways: `/mapir/image_raw` is raw (not ffmpeg-compressed) when `--no-ffmpeg-encode` is set, and `/ouster/imu_packets` is absent (IMU is available as decoded `/ouster/imu`)
+
 ## Sync Audit Status
 
 Sync-audit utilities are not bundled in this checkout.
@@ -439,7 +483,7 @@ Run the same offline conversion through the FRUC ROS Docker stack:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm noetic \
+BAGS_PATH_IN=/path/to/bags_root docker compose run --rm noetic \
   ros1utils mapir_ndvi \
     --in /bags/input.bag \
     --out /bags/output_ndvi.bag \
@@ -455,7 +499,7 @@ Useful overrides:
 
 ```bash
 cd /home/forestsphere/work_utils/fruc_ros_utils/Docker/ros
-BAGS_PATH=/path/to/bags_root docker compose run --rm noetic \
+BAGS_PATH_IN=/path/to/bags_root docker compose run --rm noetic \
   ros1utils mapir_ndvi \
     --in /bags/input.bag \
     --out /bags/mapir_ndvi_only.bag \

@@ -151,3 +151,125 @@ def export_navsat_to_kml(
     out.write_text(kml_str)
     logger.info("Exported %d NavSat records to KML → %s", len(data), out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Bag-level navsat extraction (stateless counterparts of RosbagUtils methods)
+# ---------------------------------------------------------------------------
+
+def extract_navsat_records(in_path: str, topics: List[str]) -> Dict[str, List[Dict]]:
+    import os
+    import rosbag
+    from fruc_ros_utils.bag.ros1_bag_ops import _discover_bags, _iter_bags, _iter_messages
+    from fruc_ros_utils.utils.metrics.navsat import cov_metrics
+
+    all_records: List[Dict] = []
+    bag_files = _discover_bags(in_path)
+
+    for bag_file in _iter_bags(bag_files, desc="Extracting NavSat"):
+        found_topics = {t: False for t in topics}
+        with rosbag.Bag(bag_file, "r") as bag:
+            for topic, msg, t in _iter_messages(
+                bag, desc=f"NavSat {os.path.basename(bag_file)}", topics=topics
+            ):
+                if "NavSatFix" not in msg._type:
+                    continue
+                found_topics[topic] = True
+                cov = list(getattr(msg, "position_covariance", [float("nan")] * 9))
+                met = cov_metrics(cov)
+                all_records.append({
+                    "time": t.to_sec(),
+                    "lat": msg.latitude,
+                    "lon": msg.longitude,
+                    "alt": msg.altitude,
+                    "status": int(getattr(msg.status, "status", -999)),
+                    "cov": cov,
+                    **met,
+                })
+        for t, seen in found_topics.items():
+            if not seen:
+                logger.warning("NavSat topic %s not found in %s", t, bag_file)
+
+    return {"Aggregated": all_records}
+
+
+def navsat_export(
+    in_path: str,
+    out_dir: str,
+    topics: List[str],
+    csv_name: str = "navsat.csv",
+    kml_name=None,
+) -> None:
+    out = pathlib.Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    bag_records = extract_navsat_records(in_path, topics)
+    for bag_name, records in bag_records.items():
+        if csv_name:
+            csv_file = out / f"{pathlib.Path(bag_name).stem}_{csv_name}"
+            export_navsat_to_csv(records, csv_file)
+        if kml_name:
+            kml_file = out / f"{pathlib.Path(bag_name).stem}_{kml_name}"
+            export_navsat_to_kml(records, kml_file)
+
+
+def navsat_summary(in_path: str, topics: List[str]) -> Dict[str, Dict]:
+    import numpy as np
+    summaries: Dict[str, Dict] = {}
+    bag_records = extract_navsat_records(in_path, topics)
+    for bag_name, records in bag_records.items():
+        status_counts: Dict = {}
+        r95 = []
+        for r in records:
+            status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
+            if not np.isnan(r["r95_major"]):
+                r95.append(r["r95_major"])
+        summaries[bag_name] = {
+            "total": len(records),
+            "status_counts": status_counts,
+            "r95_major_stats": {
+                "mean": np.mean(r95) if r95 else None,
+                "max": np.max(r95) if r95 else None,
+            },
+        }
+    return summaries
+
+
+def navsat_report(
+    in_path: str, topics: List[str], report_dir=None
+) -> Dict[str, Dict]:
+    import json
+    try:
+        import pandas as pd
+    except ImportError:
+        logger.error("pandas required for navsat_report")
+        return {}
+
+    reports: Dict[str, Dict] = {}
+    bag_records = extract_navsat_records(in_path, topics)
+
+    if report_dir:
+        out_path = pathlib.Path(report_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+
+    for bag_name, records in bag_records.items():
+        if not records:
+            logger.warning("No NavSat records found in %s", bag_name)
+            continue
+        df = pd.DataFrame(records)
+        reports[bag_name] = {
+            "status_distribution": df["status"].value_counts().to_dict(),
+            "r95_major": df["r95_major"].describe().to_dict(),
+            "sigma_h": df["sigma_h"].describe().to_dict(),
+        }
+        if report_dir:
+            csv_file = out_path / f"{pathlib.Path(bag_name).stem}_navsat_report.csv"
+            json_file = out_path / f"{pathlib.Path(bag_name).stem}_navsat_report.json"
+            try:
+                df.to_csv(csv_file, index=False)
+                with open(json_file, "w") as f:
+                    json.dump(reports[bag_name], f, indent=2)
+                logger.info("Saved NavSat report for %s → %s / %s", bag_name, csv_file, json_file)
+            except Exception as e:
+                logger.error("Failed to save report for %s: %s", bag_name, e)
+
+    return reports
