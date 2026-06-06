@@ -13,7 +13,7 @@ from fruc_ros_utils.bag._ros2_helpers import (
 )
 from fruc_ros_utils.bag.ros2_inspector import open_ros2_reader
 from fruc_ros_utils.bag.ros2_topic_filter import _source_topic_types
-from fruc_ros_utils.bag.ouster_conv_helpers import _ouster_packets_per_scan, _pick_ouster_points_topic
+from fruc_ros_utils.bag.ouster.conv_helpers import _ouster_packets_per_scan, _pick_ouster_points_topic
 from fruc_ros_utils.utils.logging_utils import get_logger
 
 logger = get_logger("Ros2utils", level="INFO", log_file=None)

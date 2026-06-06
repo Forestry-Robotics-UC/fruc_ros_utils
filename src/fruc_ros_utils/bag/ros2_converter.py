@@ -56,7 +56,7 @@ from fruc_ros_utils.bag.ros2_validation import (
     _validate_timestamps,
     _warn_custom_types,
 )
-from fruc_ros_utils.bag.ouster_conv_helpers import _restore_lidar_fields_from_mcap
+from fruc_ros_utils.bag.ouster.conv_helpers import _restore_lidar_fields_from_mcap
 from fruc_ros_utils.utils.logging_utils import get_logger
 
 logger = get_logger("Ros2utils", level="INFO", log_file=None)
@@ -975,7 +975,7 @@ def convert_single_to_ros1_with_ouster_decode(
 
     ouster_decoder = None
     if decode_ouster:
-        from fruc_ros_utils.bag.ouster_decode import OusterPacketDecoder
+        from fruc_ros_utils.bag.ouster.decode import OusterPacketDecoder
 
         ouster_decoder = OusterPacketDecoder(
             points_topic=points_topic,
@@ -997,7 +997,7 @@ def convert_single_to_ros1_with_ouster_decode(
             exclude_topics=exclude_topics,
         )
         if ffmpeg_topic_map:
-            from fruc_ros_utils.bag.ffmpeg_decode import FFMPEGPacketDecoder
+            from fruc_ros_utils.bag.ffmpeg.decode import FFMPEGPacketDecoder
 
             ffmpeg_decoder = FFMPEGPacketDecoder(topic_map=ffmpeg_topic_map)
             raw_ffmpeg_topics = set(ffmpeg_decoder.raw_topics())

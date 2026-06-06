@@ -51,7 +51,7 @@ from sensor_msgs.msg import PointCloud2
 from fruc_ros_utils.bag import ros2_inspector as _insp
 from fruc_ros_utils.bag import ros2_topic_filter as _tfilter
 from fruc_ros_utils.bag import ros2_validation as _valid
-from fruc_ros_utils.bag import ouster_conv_helpers as _ouster
+from fruc_ros_utils.bag.ouster import conv_helpers as _ouster
 from fruc_ros_utils.bag import ros2_converter as _conv
 
 from fruc_ros_utils.bag._ros2_helpers import (
