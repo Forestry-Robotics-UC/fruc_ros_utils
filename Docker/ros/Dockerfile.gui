@@ -1,0 +1,24 @@
+# ROS 1 Noetic GUI layer — RViz, rqt, image_view on top of fruc-ros-utils:noetic
+FROM fruc-ros-utils:noetic
+
+# Switch to root to install system packages
+USER root
+
+# ── Visualization deps ────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-noetic-rviz \
+        ros-noetic-rqt \
+        ros-noetic-rqt-common-plugins \
+        ros-noetic-rqt-image-view \
+        ros-noetic-image-view \
+        ros-noetic-rosbag \
+        # OpenGL / software rendering for RViz
+        libgl1-mesa-glx \
+        libgl1-mesa-dri \
+        libglu1-mesa \
+        mesa-utils \
+        # X11 client utilities (useful for testing display forwarding)
+        x11-apps \
+    && rm -rf /var/lib/apt/lists/*
+
+USER fruc-docker

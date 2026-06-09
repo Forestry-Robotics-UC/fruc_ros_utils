@@ -10,10 +10,16 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-import rclpy
-from rclpy.serialization import deserialize_message
-from sensor_msgs.msg import Image, Imu, PointCloud2, PointField
-from std_msgs.msg import Header, String
+try:
+    import rclpy
+    from rclpy.serialization import deserialize_message
+    from sensor_msgs.msg import Image, Imu, PointCloud2, PointField
+    from std_msgs.msg import Header, String
+except ModuleNotFoundError as _err:
+    raise ModuleNotFoundError(
+        "Ouster packet decoding requires the ROS2 Python package 'rclpy'. "
+        "This command is not available in the ROS1-only (Noetic) container."
+    ) from _err
 
 from ouster.sdk._bindings.client import ImuPacket, LidarPacket
 from ouster.sdk.core import (

@@ -44,9 +44,15 @@ try:
 except Exception:
     rosbag2_py = None
     HAS_ROSBAG2 = False
-import rclpy.serialization
+try:
+    import rclpy.serialization
+except Exception:
+    rclpy = None  # type: ignore[assignment]
 import numpy as np
-from sensor_msgs.msg import PointCloud2
+try:
+    from sensor_msgs.msg import PointCloud2
+except Exception:
+    PointCloud2 = None  # type: ignore[assignment,misc]
 
 from fruc_ros_utils.bag import ros2_inspector as _insp
 from fruc_ros_utils.bag import ros2_topic_filter as _tfilter

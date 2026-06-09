@@ -15,10 +15,13 @@
 
 # ===== Standard Library =====
 import argparse
+import csv
 import os
 import sys
 import pathlib
 from typing import Dict, List, Optional
+
+import numpy as np
 
 # ===== Custom Utilities =====
 from fruc_ros_utils.utils.logging_utils import get_logger
@@ -164,6 +167,18 @@ class RosbagUtils:
             visible_band_name=visible_band_name, eps=eps,
         )
 
+    def extract_metadata(
+        self,
+        in_path: str,
+        out_path: Optional[str] = None,
+        topics: Optional[List[str]] = None,
+        max_msgs: int = 0,
+    ) -> None:
+        raise NotImplementedError(
+            "extract_metadata is not yet implemented. "
+            "Pass --topics to filter specific metadata message types."
+        )
+
     def extract_navsat_records(self, in_path: str, topics: List[str]) -> Dict[str, List[Dict]]:
         return _extract_navsat_records(in_path, topics)
 
@@ -303,8 +318,8 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     sp.add_argument("--total", action="store_true", help="Also show summed duration")
 
     # -------- remove_topic --------
-    sub.add_parser("remove_topic", parents=[common_cfg],
-                   help="Remove specific topics from a bag")
+    sp = sub.add_parser("remove_topic", parents=[common_cfg],
+                        help="Remove specific topics from a bag")
 
     # -------- change_frame_id --------
     sp = sub.add_parser("change_frame_id", parents=[common_cfg],
@@ -320,8 +335,21 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                     help="Overwrite the output bag, or remap in place when --out is omitted")
 
     # -------- print_topic_sizes --------
-    sub.add_parser("print_topic_sizes", parents=[common_cfg],
-                   help="Print cumulative topic sizes in a bag")
+    sp = sub.add_parser(
+        "print_topic_sizes",
+        help="Print cumulative topic sizes for a bag or folder of bags",
+        description=(
+            "Reads every message in the bag(s) and reports how many MB each topic occupies. "
+            "Results are always printed to stdout. Use --out to additionally save a CSV."
+        ),
+    )
+    sp.add_argument("--in", dest="in_path", required=True, help="Input bag file or folder")
+    sp.add_argument(
+        "--out", dest="out_path", metavar="FILE.csv",
+        help="Optional CSV file to write the full per-bag breakdown (columns: bag, topic, size_bytes, size_mb)",
+    )
+    sp.add_argument("--user-config", help="User YAML config file")
+    sp.add_argument("--dev-config", help="Developer YAML config file (optional)")
 
     # -------- convert_imu_to_enu --------
     sub.add_parser("convert_imu_to_enu", parents=[common_cfg],
@@ -339,6 +367,7 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     # -------- navsat_export --------
     sp = sub.add_parser("navsat_export", parents=[common_cfg],
                         help="Extract NavSatFix and export to CSV/KML")
+    sp.set_defaults(out_path=None)
     sp.add_argument("--csv-name", default="navsat.csv", help="CSV output filename")
     sp.add_argument("--kml-name", help="Optional KML output filename")
 
@@ -475,7 +504,17 @@ def main() -> None:
         print_results(results, "Durations:")
 
     elif args.cmd == "remove_topic":
-        bu.remove_topic(cfg["in_path"], cfg["out_path"], cfg["topics"])
+        # args.out_path may be polluted by set_defaults from another subparser;
+        # check sys.argv directly to know if --out was explicitly provided.
+        _out_explicit = next(
+            (sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--out"),
+            None,
+        )
+        if not _out_explicit:
+            parser.error("remove_topic requires --out")
+        if not args.topics:
+            parser.error("remove_topic requires --topics")
+        bu.remove_topic(cfg["in_path"], _out_explicit, args.topics)
 
     elif args.cmd == "change_frame_id":
         bu.change_frame_id(cfg["in_path"], cfg["out_path"], cfg["topics"], cfg["new_frame_id"])
@@ -495,22 +534,43 @@ def main() -> None:
 
     elif args.cmd == "print_topic_sizes":
         results = bu.print_topic_sizes(cfg["in_path"])
+        totals = results.get("__Totals__", {})
+        if totals:
+            print("\nTopic sizes (totals across all bags):")
+            for topic, size in sorted(totals.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {topic}: {size / 1e6:.2f} MB")
+        out_path = cfg.get("out_path")
+        if out_path:
+            pathlib.Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["bag", "topic", "size_bytes", "size_mb"])
+                for bag_name, sizes in results.items():
+                    for topic, size in sizes.items():
+                        w.writerow([bag_name, topic, size, f"{size / 1e6:.4f}"])
+            logger.info("Topic sizes written to %s", out_path)
 
     elif args.cmd == "convert_imu_to_enu":
         bu.convert_imu_to_enu(cfg["in_path"], cfg["out_path"], cfg["topics"])
 
     elif args.cmd == "navsat_export":
-        bu.navsat_export(cfg["in_path"], cfg["out_path"], cfg["topics"],
+        _out_explicit = next(
+            (sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--out"),
+            None,
+        )
+        if not _out_explicit:
+            parser.error("navsat_export requires --out")
+        bu.navsat_export(cfg["in_path"], _out_explicit, cfg["topics"],
                          csv_name=cfg.get("csv_name", "navsat.csv"),
                          kml_name=cfg.get("kml_name"))
 
     elif args.cmd == "navsat_summary":
         results = bu.navsat_summary(cfg["in_path"], cfg["topics"])
-        logger.info(f"NavSat Summary: {results}")
+        print_results(results, "NavSat Summary:")
 
     elif args.cmd == "navsat_report":
         results = bu.navsat_report(cfg["in_path"], cfg["topics"], cfg["report"])
-        # print_results(results, "NavSat Report:")
+        print_results(results, "NavSat Report:")
     elif args.cmd == "extract_metadata":
         bu.extract_metadata(cfg["in_path"], cfg.get("out_path"), cfg.get("topics"), cfg.get("max_msgs", 0))
 
@@ -600,13 +660,12 @@ def main() -> None:
             cfg,
             benchmark=args.benchmark
         )
-        logger.info("Metric ranges: %s", results)
+        print_results(results, "Metric ranges:")
     elif args.cmd == "urdf_extrinsics":
         urdf_path = cfg.get("urdf") or cfg.get("urdf_path")
         if not urdf_path:
             parser.error("urdf_extrinsics requires --urdf")
         T = load_extrinsics_from_urdf(urdf_path, cfg["parent_link"], cfg["child_link"])
-        import numpy as np
         np.set_printoptions(precision=4, suppress=True)
         if cfg.get("rotation_only"):
             print(f"Rotation {cfg['parent_link']} -> {cfg['child_link']}:\n{T[:3, :3]}")
