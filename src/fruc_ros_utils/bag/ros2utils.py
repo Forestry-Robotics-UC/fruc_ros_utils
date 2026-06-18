@@ -46,13 +46,13 @@ except Exception:
     HAS_ROSBAG2 = False
 try:
     import rclpy.serialization
-except Exception:
-    rclpy = None  # type: ignore[assignment]
-import numpy as np
-try:
     from sensor_msgs.msg import PointCloud2
-except Exception:
-    PointCloud2 = None  # type: ignore[assignment,misc]
+except ModuleNotFoundError as _err:
+    raise ModuleNotFoundError(
+        "Ros2BagUtils requires the ROS2 Python package 'rclpy'. "
+        "This feature is not available in the ROS1-only (Noetic) container."
+    ) from _err
+import numpy as np
 
 from fruc_ros_utils.bag import ros2_inspector as _insp
 from fruc_ros_utils.bag import ros2_topic_filter as _tfilter

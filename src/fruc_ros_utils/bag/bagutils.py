@@ -295,6 +295,10 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     common_cfg.add_argument("--user-config", help="User YAML config file")
     common_cfg.add_argument("--dev-config", help="Developer YAML config file (optional)")
     common_cfg.add_argument("--in", dest="in_path", help="Input bag file or folder")
+    # `parents=[common_cfg]` reuses this same Action object across every subcommand
+    # below; a subcommand calling sp.set_defaults(out_path=...) mutates it in place
+    # and leaks that default into every other subcommand. Resolve per-subcommand
+    # defaults at dispatch time in main() instead of via set_defaults here.
     common_cfg.add_argument("--out", dest="out_path", help="Output file or folder")
     common_cfg.add_argument("--topics", nargs="+", help="ROS topics to process")
     common_cfg.add_argument("--report", help="Directory for reports")
@@ -367,7 +371,6 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
     # -------- navsat_export --------
     sp = sub.add_parser("navsat_export", parents=[common_cfg],
                         help="Extract NavSatFix and export to CSV/KML")
-    sp.set_defaults(out_path=None)
     sp.add_argument("--csv-name", default="navsat.csv", help="CSV output filename")
     sp.add_argument("--kml-name", help="Optional KML output filename")
 
@@ -398,7 +401,6 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                     help="Seconds before topic auto-discovery is aborted (<=0 disables timeout)")
     sp.add_argument("--startup-timeout", type=float, default=25.0,
                     help="When >0, start partial sequential scan immediately and warn if no image appears within this many seconds")
-    sp.set_defaults(out_path="extracted_images")
 
     # -------- images_manifest_to_bag --------
     sp = sub.add_parser("images_manifest_to_bag", parents=[common_cfg],
@@ -439,7 +441,6 @@ def build_parser(enable_shell_completion: bool = True) -> argparse.ArgumentParse
                     help="Max frames per bag (0=all)")
     sp.add_argument("--resize", type=float, default=1.0,
                     help="Display scale factor (interactive only)")
-    sp.set_defaults(out_path="colorized_labels")
 
     # -------- mapir_ndvi --------
     sp = sub.add_parser("mapir_ndvi", parents=[common_cfg],
@@ -504,20 +505,18 @@ def main() -> None:
         print_results(results, "Durations:")
 
     elif args.cmd == "remove_topic":
-        # args.out_path may be polluted by set_defaults from another subparser;
-        # check sys.argv directly to know if --out was explicitly provided.
-        _out_explicit = next(
-            (sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--out"),
-            None,
-        )
-        if not _out_explicit:
+        out_path = cfg.get("out_path")
+        if not out_path:
             parser.error("remove_topic requires --out")
         if not args.topics:
             parser.error("remove_topic requires --topics")
-        bu.remove_topic(cfg["in_path"], _out_explicit, args.topics)
+        bu.remove_topic(cfg["in_path"], out_path, args.topics)
 
     elif args.cmd == "change_frame_id":
-        bu.change_frame_id(cfg["in_path"], cfg["out_path"], cfg["topics"], cfg["new_frame_id"])
+        out_path = cfg.get("out_path")
+        if not out_path:
+            parser.error("change_frame_id requires --out")
+        bu.change_frame_id(cfg["in_path"], out_path, cfg["topics"], cfg["new_frame_id"])
 
     elif args.cmd == "remap_topics":
         remap = {}
@@ -551,16 +550,16 @@ def main() -> None:
             logger.info("Topic sizes written to %s", out_path)
 
     elif args.cmd == "convert_imu_to_enu":
-        bu.convert_imu_to_enu(cfg["in_path"], cfg["out_path"], cfg["topics"])
+        out_path = cfg.get("out_path")
+        if not out_path:
+            parser.error("convert_imu_to_enu requires --out")
+        bu.convert_imu_to_enu(cfg["in_path"], out_path, cfg["topics"])
 
     elif args.cmd == "navsat_export":
-        _out_explicit = next(
-            (sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--out"),
-            None,
-        )
-        if not _out_explicit:
+        out_path = cfg.get("out_path")
+        if not out_path:
             parser.error("navsat_export requires --out")
-        bu.navsat_export(cfg["in_path"], _out_explicit, cfg["topics"],
+        bu.navsat_export(cfg["in_path"], out_path, cfg["topics"],
                          csv_name=cfg.get("csv_name", "navsat.csv"),
                          kml_name=cfg.get("kml_name"))
 
@@ -576,11 +575,9 @@ def main() -> None:
 
     elif args.cmd == "extract_images_manifest":
         in_path = cfg.get("in_path")
-        out_path = cfg.get("out_path")
+        out_path = cfg.get("out_path") or "extracted_images"
         if not in_path:
             parser.error("extract_images_manifest requires --in")
-        if not out_path:
-            parser.error("extract_images_manifest requires --out")
         results = bu.extract_images_manifest(
             in_path=in_path,
             out_dir=out_path,
@@ -620,7 +617,7 @@ def main() -> None:
         bu.colorize_label_images(
             cfg["in_path"],
             cfg.get("topics"),
-            cfg.get("out_path"),
+            cfg.get("out_path") or "colorized_labels",
             color_map=cfg.get("color_map"),
             interactive=bool(cfg.get("interactive")),
             save_all=bool(cfg.get("save_all")),
@@ -634,9 +631,12 @@ def main() -> None:
         )
 
     elif args.cmd == "mapir_ndvi":
+        out_path = cfg.get("out_path")
+        if not out_path:
+            parser.error("mapir_ndvi requires --out")
         bu.mapir_ndvi(
             cfg["in_path"],
-            cfg["out_path"],
+            out_path,
             image_topic=cfg.get("image_topic", "/mapir/image_raw"),
             output_topic=cfg.get("output_topic", "/mapir/indices/ndvi"),
             output_encoding=cfg.get("output_encoding", "32FC1"),

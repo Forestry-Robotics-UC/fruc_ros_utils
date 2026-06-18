@@ -197,9 +197,6 @@ def print_topic_sizes(in_path: str) -> Dict[str, Dict[str, int]]:
             logger.info("%s: %.2f MB", topic, size / 1e6)
     if totals:
         results["__Totals__"] = dict(totals)
-        logger.info("--- Totals across all bags ---")
-        for topic, size in sorted(totals.items(), key=lambda x: x[1]):
-            logger.info("%s: %.2f MB", topic, size / 1e6)
     return results
 
 
