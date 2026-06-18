@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fruc-ros-utils"
-version = "0.2.0"
+version = "0.2.1"
 description = "Refactored ROS bag utilities with illumination correction and navsat tools"
 authors = [
     { name="Duda Andrada", email="duda.andrada@isr.uc.pt" }
