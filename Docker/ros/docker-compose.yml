@@ -30,7 +30,7 @@ x-ros-common: &ros-common
   network_mode: host
   stdin_open: true
   tty: true
-  # Run ../../scripts/apply_compose_memory_limits.sh to generate a host-specific .env.
+  # Run scripts/shell/apply_compose_memory_limits.sh from the fruc_ros_utils root to generate a host-specific .env.
   # These fallbacks keep the stack usable if no .env has been generated yet.
   mem_limit: ${FRUC_ROS_MEM_LIMIT:-8g}
   memswap_limit: ${FRUC_ROS_MEMSWAP_LIMIT:-8g}
@@ -73,3 +73,19 @@ services:
         ROSBAGS_INSTALL_SPEC: ${ROSBAGS_INSTALL_SPEC:-rosbags==0.10.11}
     image: fruc-ros-utils:jazzy
     container_name: fruc-jazzy
+
+  # ---------------------------------------------------------------------------
+  # GUI (ROS 1 Noetic) — RViz, rqt, image_view on top of the noetic image
+  # Requires fruc-ros-utils:noetic to be built first:
+  #   docker compose build noetic && docker compose build gui
+  # Usage:  docker compose run --rm gui rviz
+  #         docker compose run --rm gui rqt
+  #         docker compose run --rm gui rosrun image_view image_view image:=/topic
+  # ---------------------------------------------------------------------------
+  gui:
+    <<: *ros-common
+    build:
+      context: ../..             # fruc_ros_utils root
+      dockerfile: Docker/ros/Dockerfile.gui
+    image: fruc-ros-utils:gui
+    container_name: fruc-gui

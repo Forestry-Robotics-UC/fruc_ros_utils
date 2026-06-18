@@ -83,6 +83,16 @@ def merge_configs(cli_args, user_cfg: dict, dev_cfg: dict) -> dict:
     cfg.update(dev_cfg or {})
     cfg.update(user_cfg or {})
 
+    # These sections are named after one specific CLI subcommand and carry
+    # keys (e.g. colorize_labels.out_path) that collide with other
+    # subcommands' flattened keys. Only flatten one when it's the active
+    # subcommand, so e.g. colorize_labels's out_path default can't leak into
+    # remove_topic/change_frame_id/etc. cmd is unset for non-CLI callers
+    # (e.g. analyze_metrics' direct merge_configs call), which keeps the old
+    # flatten-everything behavior for them.
+    command_scoped_sections = {"colorize_labels", "mapir_ndvi", "extract_metadata"}
+    cmd = getattr(cli_args, "cmd", None)
+
     for section_name in (
         "bagutils",
         "extrinsics",
@@ -93,6 +103,9 @@ def merge_configs(cli_args, user_cfg: dict, dev_cfg: dict) -> dict:
         "colorize_labels",
         "extract_metadata",
     ):
+        if section_name in command_scoped_sections and cmd is not None and section_name != cmd:
+            cfg.pop(section_name, None)
+            continue
         if section_name in cfg and isinstance(cfg[section_name], dict):
             cfg.update(cfg.pop(section_name))
 
